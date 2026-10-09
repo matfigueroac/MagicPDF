@@ -125,6 +125,20 @@ ipcMain.handle('get-initial-file', () => {
   return initialPdfPath;
 });
 
+ipcMain.handle('open-file-dialog', async () => {
+  try {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: 'Abrir Documento PDF',
+      filters: [{ name: 'Documentos PDF (*.pdf)', extensions: ['pdf'] }],
+      properties: ['openFile', 'multiSelections']
+    });
+    return { canceled, filePaths };
+  } catch (err) {
+    console.error('Error in open-file-dialog:', err);
+    return { canceled: true, filePaths: [] };
+  }
+});
+
 ipcMain.handle('save-file-as', async (_event, { defaultName, tempPath }) => {
   try {
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {

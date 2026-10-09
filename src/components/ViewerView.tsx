@@ -4,7 +4,6 @@ import {
   ChevronRight, 
   ZoomIn, 
   ZoomOut, 
-  Maximize2, 
   Hand, 
   MousePointer, 
   RotateCw, 
@@ -14,10 +13,21 @@ import {
   Edit3, 
   ChevronsLeft, 
   ChevronsRight,
-  Minimize2
+  Highlighter,
+  Trash2,
+  Copy,
+  Check
 } from 'lucide-react';
-import { PdfDocument, ReadingMode } from '../types';
-import { getPageImageUrl } from '../api/client';
+import { PdfDocument, ReadingMode, LineInfo } from '../types';
+import { getPageImageUrl, getPageLines } from '../api/client';
+
+interface HighlightItem {
+  id: string;
+  page: number;
+  box: [number, number, number, number]; // [x1, y1, x2, y2]
+  color: string;
+  text?: string;
+}
 
 interface ViewerViewProps {
   document: PdfDocument;
@@ -33,22 +43,49 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
   onEnterEditMode,
 }) => {
   const [zoom, setZoom] = useState(1.0);
-  const [rotation, setRotation] = useState(0); // 0, 90, 180, 270 visual rotation
+  const [rotation, setRotation] = useState(0);
   const [readingMode, setReadingMode] = useState<ReadingMode>('normal');
-  const [interactionMode, setInteractionMode] = useState<'hand' | 'select'>('hand');
+  const [interactionMode, setInteractionMode] = useState<'select' | 'hand' | 'highlight'>('select');
+  const [highlightColor, setHighlightColor] = useState<string>('#FEF08A'); // Default yellow
   const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
   const [imageLoaded, setImageLoaded] = useState(false);
+
+  // Text Lines for text selection & highlighting
+  const [lines, setLines] = useState<LineInfo[]>([]);
+  const [highlights, setHighlights] = useState<HighlightItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(`magicpdf_highlights_${document.filename}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [copiedNotification, setCopiedNotification] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
   const BASE_WIDTH = 850;
 
-  // Reset image loaded on page change
+  // Save highlights in localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(`magicpdf_highlights_${document.filename}`, JSON.stringify(highlights));
+    } catch {}
+  }, [highlights, document.filename]);
+
+  // Load text lines for the current page
   useEffect(() => {
     setImageLoaded(false);
+    getPageLines(document.filename, currentPage)
+      .then(setLines)
+      .catch((err) => {
+        console.warn('Could not load text lines for page:', err);
+        setLines([]);
+      });
   }, [document.filename, currentPage]);
 
   // Spacebar pan listener
@@ -79,7 +116,7 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey) {
         e.preventDefault();
-        const delta = e.deltaY < 0 ? 0.1 : -0.1;
+        const delta = e.deltaY < 0 ? 0.15 : -0.15;
         setZoom(prev => Math.min(Math.max(0.3, +(prev + delta).toFixed(2)), 3.0));
       }
     };
@@ -128,12 +165,29 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
     setZoom(+(availableHeight / (BASE_WIDTH * 1.414)).toFixed(2));
   };
 
-  // Rotation
   const handleRotate = () => {
     setRotation(prev => (prev + 90) % 360);
   };
 
-  // Filter style based on readingMode
+  // Highlight actions
+  const handleLineClick = (line: LineInfo) => {
+    if (interactionMode !== 'highlight') return;
+    const newHighlight: HighlightItem = {
+      id: `hl_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      page: currentPage,
+      box: line.box,
+      color: highlightColor,
+      text: line.text
+    };
+    setHighlights(prev => [...prev, newHighlight]);
+  };
+
+  const removeHighlight = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHighlights(prev => prev.filter(h => h.id !== id));
+  };
+
+  // Reading mode filter
   const getFilterStyle = () => {
     if (readingMode === 'night') {
       return { filter: 'invert(0.92) hue-rotate(180deg) contrast(1.15) brightness(0.95)' };
@@ -144,39 +198,98 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
     return {};
   };
 
+  // Coordinate mapping for lines & highlights
+  const getBoxStyle = (box: [number, number, number, number]) => {
+    if (!imageRef.current) return { display: 'none' };
+    const docPtWidth = (imageRef.current.naturalWidth / 150) * 72;
+    const docPtHeight = (imageRef.current.naturalHeight / 150) * 72;
+
+    const [x1, y1, x2, y2] = box;
+    const left = (x1 / docPtWidth) * 100;
+    const top = (y1 / docPtHeight) * 100;
+    const width = ((x2 - x1) / docPtWidth) * 100;
+    const height = ((y2 - y1) / docPtHeight) * 100;
+
+    return {
+      left: `${left}%`,
+      top: `${top}%`,
+      width: `${Math.max(width, 0.5)}%`,
+      height: `${Math.max(height, 0.5)}%`,
+    };
+  };
+
   const isPanningActive = interactionMode === 'hand' || isSpacePressed;
+  const pageHighlights = highlights.filter(h => h.page === currentPage);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#E5E7EB] dark:bg-[#08080C] overflow-hidden select-none transition-colors">
       {/* 1. Foxit-Style Viewer Ribbon / Toolbar */}
       <div className="h-11 border-b border-gray-200 dark:border-magic-border bg-white dark:bg-magic-card px-3 flex items-center justify-between shrink-0 z-10 transition-colors shadow-sm">
-        {/* Left: Interaction Tools & Zoom */}
+        {/* Left: Tools & Zoom */}
         <div className="flex items-center gap-1.5">
-          {/* Hand / Select Toggle */}
+          {/* Interaction Mode Toggle: Select, Hand, Highlight */}
           <div className="flex items-center bg-gray-100 dark:bg-magic-bg p-0.5 rounded-lg border border-gray-200 dark:border-magic-border">
             <button
-              onClick={() => setInteractionMode('hand')}
-              className={`p-1.5 rounded-md text-xs transition-all ${
-                interactionMode === 'hand'
-                  ? 'bg-white dark:bg-magic-card text-indigo-600 dark:text-indigo-300 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-              }`}
-              title="Herramienta Mano (Paneo) [H o Espacio]"
-            >
-              <Hand className="w-3.5 h-3.5" />
-            </button>
-            <button
               onClick={() => setInteractionMode('select')}
-              className={`p-1.5 rounded-md text-xs transition-all ${
+              className={`p-1.5 rounded-md text-xs transition-all flex items-center gap-1 ${
                 interactionMode === 'select'
-                  ? 'bg-white dark:bg-magic-card text-indigo-600 dark:text-indigo-300 shadow-sm'
+                  ? 'bg-white dark:bg-magic-card text-indigo-600 dark:text-indigo-300 shadow-sm font-medium'
                   : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
               }`}
-              title="Herramienta Puntero de Selección [V]"
+              title="Herramienta Selección de Texto (puedes seleccionar y pulsar Ctrl+C para copiar)"
             >
               <MousePointer className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline text-[11px]">Seleccionar</span>
+            </button>
+
+            <button
+              onClick={() => setInteractionMode('hand')}
+              className={`p-1.5 rounded-md text-xs transition-all flex items-center gap-1 ${
+                interactionMode === 'hand'
+                  ? 'bg-white dark:bg-magic-card text-indigo-600 dark:text-indigo-300 shadow-sm font-medium'
+                  : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+              }`}
+              title="Herramienta Mano para mover la página (o mantén pulsada la barra espaciadora)"
+            >
+              <Hand className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline text-[11px]">Mano</span>
+            </button>
+
+            {/* Highlighter Tool */}
+            <button
+              onClick={() => setInteractionMode('highlight')}
+              className={`p-1.5 rounded-md text-xs transition-all flex items-center gap-1 ${
+                interactionMode === 'highlight'
+                  ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 shadow-sm font-medium border border-amber-300 dark:border-amber-700'
+                  : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+              }`}
+              title="Herramienta Resaltador: Haz clic en cualquier línea para resaltarla en amarillo"
+            >
+              <Highlighter className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-[11px] font-semibold">Resaltar</span>
             </button>
           </div>
+
+          {/* Highlight Color Choices (only visible when highlight is active) */}
+          {interactionMode === 'highlight' && (
+            <div className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 dark:bg-magic-bg rounded-lg border border-gray-200 dark:border-magic-border animate-in fade-in duration-100">
+              <button
+                onClick={() => setHighlightColor('#FEF08A')}
+                className={`w-4 h-4 rounded-full bg-yellow-300 border ${highlightColor === '#FEF08A' ? 'ring-2 ring-indigo-500' : 'border-yellow-400'}`}
+                title="Amarillo Fluorescente"
+              />
+              <button
+                onClick={() => setHighlightColor('#BBF7D0')}
+                className={`w-4 h-4 rounded-full bg-emerald-300 border ${highlightColor === '#BBF7D0' ? 'ring-2 ring-indigo-500' : 'border-emerald-400'}`}
+                title="Verde Neón"
+              />
+              <button
+                onClick={() => setHighlightColor('#FBCFE8')}
+                className={`w-4 h-4 rounded-full bg-pink-300 border ${highlightColor === '#FBCFE8' ? 'ring-2 ring-indigo-500' : 'border-pink-400'}`}
+                title="Rosa Neón"
+              />
+            </div>
+          )}
 
           <div className="h-4 w-px bg-gray-200 dark:bg-magic-border mx-1" />
 
@@ -228,7 +341,7 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
             title="Girar vista 90°"
           >
             <RotateCw className="w-3.5 h-3.5 text-indigo-500" />
-            <span className="hidden md:inline font-medium">Girar vista</span>
+            <span className="hidden md:inline font-medium">Girar</span>
           </button>
         </div>
 
@@ -300,7 +413,9 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
         className={`flex-1 overflow-auto p-8 flex items-start justify-center ${
           isPanningActive
             ? isDraggingCanvas ? 'cursor-grabbing' : 'cursor-grab'
-            : 'cursor-default'
+            : interactionMode === 'highlight'
+              ? 'cursor-text'
+              : 'cursor-text'
         }`}
       >
         <div 
@@ -324,6 +439,66 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
             draggable={false}
           />
 
+          {/* 3. HIGHLIGHTS LAYER (Fluorescent blend on top of page) */}
+          {imageLoaded && (
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+              {pageHighlights.map((hl) => {
+                const style = getBoxStyle(hl.box);
+                return (
+                  <div
+                    key={hl.id}
+                    style={{
+                      ...style,
+                      backgroundColor: hl.color,
+                      mixBlendMode: readingMode === 'night' ? 'screen' : 'multiply',
+                      opacity: 0.65
+                    }}
+                    className="absolute rounded-sm pointer-events-auto group cursor-pointer transition-opacity hover:opacity-90"
+                    title="Texto resaltado • Clic para eliminar"
+                  >
+                    <button
+                      onClick={(e) => removeHighlight(hl.id, e)}
+                      className="hidden group-hover:flex absolute -top-3 -right-3 w-4 h-4 rounded-full bg-red-500 text-white items-center justify-center shadow text-[10px]"
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 4. SELECTABLE TEXT LAYER (Supports standard mouse selection, copy Ctrl+C, and highlight clicks) */}
+          {imageLoaded && (
+            <div 
+              className={`absolute inset-0 overflow-hidden leading-none ${
+                interactionMode === 'hand' || isSpacePressed ? 'pointer-events-none' : 'pointer-events-auto select-text'
+              }`}
+            >
+              {lines.map((l) => {
+                const style = getBoxStyle(l.box);
+                return (
+                  <span
+                    key={`line_${l.line}`}
+                    onClick={() => handleLineClick(l)}
+                    style={{
+                      ...style,
+                      fontSize: `${(l.size || 12) * zoom * 1.3}px`,
+                      color: 'transparent',
+                    }}
+                    className={`absolute select-text whitespace-pre leading-none transition-colors ${
+                      interactionMode === 'highlight'
+                        ? 'hover:bg-amber-300/30 cursor-pointer'
+                        : 'selection:bg-indigo-500/30 selection:text-transparent'
+                    }`}
+                  >
+                    {l.text}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
           {!imageLoaded && (
             <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm rounded-sm">
               <div className="flex flex-col items-center gap-2">
@@ -335,7 +510,7 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Bottom Status Bar (Page Navigation & Zoom) */}
+      {/* 5. Bottom Status Bar (Page Navigation & Zoom) */}
       <footer className="h-9 border-t border-gray-200 dark:border-magic-border bg-white dark:bg-magic-card px-4 flex items-center justify-between shrink-0 text-xs text-gray-600 dark:text-gray-400 transition-colors">
         {/* Left: Page Navigation */}
         <div className="flex items-center gap-1.5">
@@ -392,8 +567,11 @@ export const ViewerView: React.FC<ViewerViewProps> = ({
           </button>
         </div>
 
-        {/* Center / Right: Zoom summary & Document name */}
+        {/* Center / Right: Copy hint & Zoom */}
         <div className="flex items-center gap-3">
+          <span className="text-[11px] text-gray-400 hidden lg:inline">
+            💡 Puedes seleccionar texto con el ratón y presionar <kbd className="px-1 py-0.5 rounded bg-gray-100 dark:bg-magic-bg border border-gray-300 dark:border-magic-border font-mono">Ctrl+C</kbd> para copiar
+          </span>
           <span className="truncate max-w-[200px] text-[11px] text-gray-400 hidden md:inline">
             {document.name}
           </span>

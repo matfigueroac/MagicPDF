@@ -49,6 +49,21 @@ export interface ParagraphInfo {
   rect: [number, number, number, number]; // [x1, y1, x2, y2]
 }
 
+export interface LineInfo {
+  line: number;
+  text: string;
+  box: [number, number, number, number]; // [x1, y1, x2, y2]
+  font?: string;
+  size?: number;
+}
+
+export interface ImageInfo {
+  image: number;
+  box: [number, number, number, number]; // [x1, y1, x2, y2]
+  pixels?: [number, number];
+  name?: string;
+}
+
 export interface DocInfo {
   doc?: number;
   pages: number;
@@ -138,6 +153,64 @@ export async function getPageParagraphs(pdfPath: string, pageNumber: number): Pr
   const results = await runScript(steps);
   const paragraphResult = results.find(r => r.paragraphs !== undefined);
   return paragraphResult?.paragraphs || [];
+}
+
+/**
+ * Get all individual text lines for a specific page (for precise text selection & highlighting)
+ */
+export async function getPageLines(pdfPath: string, pageNumber: number): Promise<LineInfo[]> {
+  const steps = [
+    { tool: 'doc_open', args: { path: pdfPath } },
+    { tool: 'text_lines', args: { doc: 1, page: pageNumber } },
+    { tool: 'doc_close', args: { doc: 1 } }
+  ];
+  const results = await runScript(steps);
+  const lineResult = results.find(r => r.lines !== undefined);
+  return lineResult?.lines || [];
+}
+
+/**
+ * Get all recognized images drawn on a page
+ */
+export async function getPageImages(pdfPath: string, pageNumber: number): Promise<ImageInfo[]> {
+  const steps = [
+    { tool: 'doc_open', args: { path: pdfPath } },
+    { tool: 'page_images', args: { doc: 1, page: pageNumber } },
+    { tool: 'doc_close', args: { doc: 1 } }
+  ];
+  const results = await runScript(steps);
+  const imgResult = results.find(r => r.images !== undefined);
+  return imgResult?.images || [];
+}
+
+/**
+ * Edit an image on a page (delete, rotate, replace, flip)
+ */
+export async function editImage(
+  pdfPath: string,
+  pageNumber: number,
+  imageNumber: number,
+  action: 'rotate' | 'delete' | 'replace' | 'flip_horizontal' | 'flip_vertical' | 'move',
+  options: { path?: string; quarters?: number; rect?: [number, number, number, number] } = {}
+): Promise<string> {
+  const args: Record<string, any> = {
+    doc: 1,
+    page: pageNumber,
+    image: imageNumber,
+    action
+  };
+  if (options.path) args.path = options.path;
+  if (options.quarters !== undefined) args.quarters = options.quarters;
+  if (options.rect) args.rect = options.rect;
+
+  const steps = [
+    { tool: 'doc_open', args: { path: pdfPath } },
+    { tool: 'image_edit', args },
+    { tool: 'doc_save', args: { doc: 1, path: pdfPath } },
+    { tool: 'doc_close', args: { doc: 1 } }
+  ];
+  await runScript(steps);
+  return pdfPath;
 }
 
 /**

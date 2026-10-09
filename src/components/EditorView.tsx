@@ -17,10 +17,22 @@ import {
   Hand,
   MousePointer,
   RotateCcw,
-  Minimize2
+  RotateCw,
+  Trash2,
+  Image as ImageIcon,
+  Minimize2,
+  FlipHorizontal,
+  Upload
 } from 'lucide-react';
-import { PdfDocument, ParagraphInfo } from '../types';
-import { getPageImageUrl, getParagraphs, editText, addText } from '../api/client';
+import { PdfDocument, ParagraphInfo, ImageInfo } from '../types';
+import { 
+  getPageImageUrl, 
+  getParagraphs, 
+  editText, 
+  addText, 
+  getPageImages, 
+  editImage 
+} from '../api/client';
 
 interface EditorViewProps {
   document: PdfDocument;
@@ -39,7 +51,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
 }) => {
   const [zoom, setZoom] = useState(1.0);
   const [paragraphs, setParagraphs] = useState<ParagraphInfo[]>([]);
-  const [isLoadingParagraphs, setIsLoadingParagraphs] = useState(false);
+  const [images, setImages] = useState<ImageInfo[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   
   // Tool mode: 'select' (click to edit) vs 'hand' (click & drag to pan)
@@ -58,6 +71,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const [isItalic, setIsItalic] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Selected Image state
+  const [selectedImage, setSelectedImage] = useState<ImageInfo | null>(null);
+
   // Add new text mode
   const [isAddingText, setIsAddingText] = useState(false);
   const [newTextCoords, setNewTextCoords] = useState<[number, number] | null>(null);
@@ -65,26 +81,31 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const replaceImageInputRef = useRef<HTMLInputElement>(null);
 
-  // Base page width in CSS pixels (at 100% zoom)
   const BASE_WIDTH = 850;
 
-  // Load paragraphs for current page
+  // Load paragraphs and recognized images for current page
   const loadPageData = async () => {
     try {
-      setIsLoadingParagraphs(true);
-      const data = await getParagraphs(document.filename, currentPage);
-      setParagraphs(data);
+      setIsLoadingData(true);
+      const [paraData, imgData] = await Promise.all([
+        getParagraphs(document.filename, currentPage),
+        getPageImages(document.filename, currentPage).catch(() => [])
+      ]);
+      setParagraphs(paraData);
+      setImages(imgData);
     } catch (err) {
-      console.error('Error loading paragraphs:', err);
+      console.error('Error loading page data:', err);
     } finally {
-      setIsLoadingParagraphs(false);
+      setIsLoadingData(false);
     }
   };
 
   useEffect(() => {
     setImageLoaded(false);
     setEditingParagraph(null);
+    setSelectedImage(null);
     setNewTextCoords(null);
     loadPageData();
   }, [document.filename, currentPage]);
@@ -109,9 +130,17 @@ export const EditorView: React.FC<EditorViewProps> = ({
     };
   }, [editingParagraph]);
 
-  // Pan / Drag handlers
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Enable pan if in hand mode, space pressed, or middle mouse click (button 1)
+  // Mouse wheel zoom with Ctrl
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 0.15 : -0.15;
+      setZoom(prev => Math.min(Math.max(0.4, Number((prev + delta).toFixed(2))), 3.0));
+    }
+  };
+
+  // Canvas Drag / Pan Handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
     if (interactionMode === 'hand' || isSpacePressed || e.button === 1) {
       if (!containerRef.current) return;
       setIsDraggingCanvas(true);
@@ -121,11 +150,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
         scrollLeft: containerRef.current.scrollLeft,
         scrollTop: containerRef.current.scrollTop
       });
-      e.preventDefault();
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDraggingCanvas || !containerRef.current) return;
     const dx = e.clientX - dragStart.x;
     const dy = e.clientY - dragStart.y;
@@ -137,41 +165,19 @@ export const EditorView: React.FC<EditorViewProps> = ({
     setIsDraggingCanvas(false);
   };
 
-  // Ctrl + Wheel to Zoom
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.ctrlKey) {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? 0.15 : -0.15;
-      setZoom(z => Math.min(3.0, Math.max(0.4, Number((z + delta).toFixed(2)))));
-    }
-  };
-
-  // Fit Width & Fit Page
-  const handleFitWidth = () => {
-    if (!containerRef.current) return;
-    const containerWidth = containerRef.current.clientWidth - 80;
-    const newZoom = Math.min(2.5, Math.max(0.4, containerWidth / BASE_WIDTH));
-    setZoom(Number(newZoom.toFixed(2)));
-  };
-
-  const handleFitPage = () => {
-    if (!containerRef.current || !imageRef.current) return;
-    const containerHeight = containerRef.current.clientHeight - 80;
-    const aspectRatio = (imageRef.current.naturalHeight || 1100) / (imageRef.current.naturalWidth || 850);
-    const pageHeight = BASE_WIDTH * aspectRatio;
-    const newZoom = Math.min(2.5, Math.max(0.4, containerHeight / pageHeight));
-    setZoom(Number(newZoom.toFixed(2)));
-  };
-
-  const handleParagraphClick = (p: ParagraphInfo) => {
+  // Start editing a paragraph
+  const handleParagraphClick = (p: ParagraphInfo, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (interactionMode === 'hand' || isSpacePressed) return;
+    setSelectedImage(null);
     setEditingParagraph(p);
     setEditTextValue(p.text);
+    setEditFont(p.font || 'helvetica');
     setEditSize(p.size ? Math.round(p.size) : 14);
-    setEditFont(p.font ? p.font.toLowerCase() : 'helvetica');
     setEditColor(p.color || '#222226');
   };
 
+  // Save edited paragraph
   const handleSaveEdit = async () => {
     if (!editingParagraph) return;
     try {
@@ -188,23 +194,82 @@ export const EditorView: React.FC<EditorViewProps> = ({
       await loadPageData();
       onDocumentUpdated();
     } catch (err: any) {
-      alert(`Error al guardar edición: ${err.message}`);
+      alert(`Error al actualizar texto: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
   };
 
+  // Click on recognized image
+  const handleImageClick = (img: ImageInfo, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (interactionMode === 'hand' || isSpacePressed) return;
+    setEditingParagraph(null);
+    setSelectedImage(img);
+  };
+
+  // Image actions (Rotate 90°, Delete, Flip)
+  const handleRotateImage = async () => {
+    if (!selectedImage) return;
+    try {
+      setIsSaving(true);
+      await editImage(document.filename, currentPage, selectedImage.image, 'rotate', { quarters: 1 });
+      setSelectedImage(null);
+      setImageLoaded(false);
+      await loadPageData();
+      onDocumentUpdated();
+    } catch (err: any) {
+      alert(`Error al rotar imagen: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteImage = async () => {
+    if (!selectedImage) return;
+    if (!confirm('¿Eliminar esta imagen del PDF?')) return;
+    try {
+      setIsSaving(true);
+      await editImage(document.filename, currentPage, selectedImage.image, 'delete');
+      setSelectedImage(null);
+      setImageLoaded(false);
+      await loadPageData();
+      onDocumentUpdated();
+    } catch (err: any) {
+      alert(`Error al eliminar imagen: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleFlipImage = async () => {
+    if (!selectedImage) return;
+    try {
+      setIsSaving(true);
+      await editImage(document.filename, currentPage, selectedImage.image, 'flip_horizontal');
+      setSelectedImage(null);
+      setImageLoaded(false);
+      await loadPageData();
+      onDocumentUpdated();
+    } catch (err: any) {
+      alert(`Error al voltear imagen: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Add new text handling
   const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isAddingText || !imageRef.current) return;
-    const rect = imageRef.current.getBoundingClientRect();
+    const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    const scaleX = (imageRef.current.naturalWidth / 96 * 72) / rect.width;
-    const scaleY = (imageRef.current.naturalHeight / 96 * 72) / rect.height;
+    const scaleX = imageRef.current.naturalWidth / rect.width;
+    const scaleY = imageRef.current.naturalHeight / rect.height;
 
-    const pdfX = Math.round(clickX * scaleX);
-    const pdfY = Math.round(clickY * scaleY);
+    const pdfX = Math.round((clickX * scaleX * 72) / 120);
+    const pdfY = Math.round((clickY * scaleY * 72) / 120);
 
     setNewTextCoords([pdfX, pdfY]);
     setNewTextValue('Nuevo texto');
@@ -233,10 +298,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
     }
   };
 
-  // Coordinates mapping
+  // Box Coordinate mapping
   const getBoxStyle = (pRect: [number, number, number, number]) => {
     if (!imageRef.current) return { display: 'none' };
-    
     const docPtWidth = (imageRef.current.naturalWidth / 120) * 72;
     const docPtHeight = (imageRef.current.naturalHeight / 120) * 72;
 
@@ -249,8 +313,8 @@ export const EditorView: React.FC<EditorViewProps> = ({
     return {
       left: `${left}%`,
       top: `${top}%`,
-      width: `${Math.max(width, 2)}%`,
-      height: `${Math.max(height, 2)}%`,
+      width: `${Math.max(width, 1.5)}%`,
+      height: `${Math.max(height, 1.5)}%`,
     };
   };
 
@@ -260,13 +324,12 @@ export const EditorView: React.FC<EditorViewProps> = ({
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#E5E7EB] dark:bg-[#08080C] select-none transition-colors">
       {/* Top Toolbar */}
       <div className="h-11 border-b border-gray-200 dark:border-magic-border bg-white dark:bg-magic-card px-4 flex items-center justify-between shrink-0 z-20 shadow-sm transition-colors">
-        {/* Left: Return to Viewer & Page Navigation */}
+        {/* Left: Back to Viewer & Page Navigation */}
         <div className="flex items-center gap-2">
-          {/* Back to Viewer button */}
           <button
             onClick={onReturnToViewer}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-magic-bg hover:bg-gray-200 dark:hover:bg-magic-hover text-gray-700 dark:text-gray-300 text-xs font-medium border border-gray-200 dark:border-magic-border transition-colors mr-1"
-            title="Volver a la vista normal de lectura"
+            title="Volver al Modo Visor normal"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
             <span>Modo Visor</span>
@@ -295,10 +358,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
             <ChevronRight className="w-4 h-4" />
           </button>
 
-          <div className="h-4 w-px bg-magic-border mx-1" />
+          <div className="h-4 w-px bg-gray-200 dark:bg-magic-border mx-1" />
 
           {/* Tool Toggles: Select vs Hand (Pan) */}
-          <div className="flex items-center bg-magic-bg p-0.5 rounded-lg border border-magic-border">
+          <div className="flex items-center bg-gray-100 dark:bg-magic-bg p-0.5 rounded-lg border border-gray-200 dark:border-magic-border">
             <button
               onClick={() => {
                 setInteractionMode('select');
@@ -307,7 +370,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               className={`p-1.5 rounded-md text-xs transition-colors ${
                 interactionMode === 'select' && !isAddingText
                   ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-gray-400 hover:text-white'
+                  : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
               }`}
               title="Herramienta Selección / Edición de Texto"
             >
@@ -318,11 +381,12 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 setInteractionMode('hand');
                 setIsAddingText(false);
                 setEditingParagraph(null);
+                setSelectedImage(null);
               }}
               className={`p-1.5 rounded-md text-xs transition-colors ${
                 interactionMode === 'hand'
                   ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-gray-400 hover:text-white'
+                  : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
               }`}
               title="Herramienta Mano para mover la página (o mantén pulsada la barra espaciadora)"
             >
@@ -335,12 +399,13 @@ export const EditorView: React.FC<EditorViewProps> = ({
             onClick={() => {
               setIsAddingText(!isAddingText);
               setEditingParagraph(null);
+              setSelectedImage(null);
               setInteractionMode('select');
             }}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-all ${
               isAddingText
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                : 'text-gray-300 hover:text-white hover:bg-magic-hover'
+                : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-magic-hover'
             }`}
           >
             <PlusCircle className="w-3.5 h-3.5" />
@@ -349,69 +414,50 @@ export const EditorView: React.FC<EditorViewProps> = ({
         </div>
 
         {/* Center: Hint */}
-        <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400 bg-magic-bg px-3 py-1 rounded-full border border-magic-border/70">
-          <HelpCircle className="w-3.5 h-3.5 text-indigo-400" />
+        <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-magic-bg px-3 py-1 rounded-full border border-gray-200 dark:border-magic-border/70">
+          <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />
           <span>
             {isHandActive 
               ? 'Arrastra con el ratón para mover la página' 
-              : 'Haz clic en cualquier texto para editarlo • Ctrl + Rueda para Zoom'}
+              : 'Haz clic en texto o imágenes para editarlos • Ctrl + Rueda para Zoom'}
           </span>
         </div>
 
         {/* Right: Zoom Controls */}
-        <div className="flex items-center gap-1 bg-magic-bg px-1.5 py-1 rounded-lg border border-magic-border">
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-magic-bg px-1.5 py-1 rounded-lg border border-gray-200 dark:border-magic-border">
           <button
             onClick={() => setZoom(z => Math.max(0.4, Number((z - 0.15).toFixed(2))))}
-            className="p-1 rounded text-gray-400 hover:text-white hover:bg-magic-hover transition-colors"
+            className="p-1 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover transition-colors"
             title="Reducir Zoom"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
 
-          <span className="text-xs font-mono text-gray-300 px-1.5 min-w-[48px] text-center">
+          <span className="text-xs font-mono text-gray-700 dark:text-gray-300 px-1.5 min-w-[48px] text-center">
             {Math.round(zoom * 100)}%
           </span>
 
           <button
             onClick={() => setZoom(z => Math.min(3.0, Number((z + 0.15).toFixed(2))))}
-            className="p-1 rounded text-gray-400 hover:text-white hover:bg-magic-hover transition-colors"
+            className="p-1 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover transition-colors"
             title="Aumentar Zoom"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
 
-          <div className="h-3 w-px bg-magic-border mx-0.5" />
+          <div className="h-3 w-px bg-gray-200 dark:bg-magic-border mx-0.5" />
 
-          {/* Reset Zoom */}
           <button
             onClick={() => setZoom(1.0)}
-            className="p-1 rounded text-gray-400 hover:text-white hover:bg-magic-hover transition-colors text-[10px] font-mono"
+            className="p-1 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover transition-colors text-[10px] font-mono"
             title="100%"
           >
             100%
           </button>
-
-          {/* Fit Width */}
-          <button
-            onClick={handleFitWidth}
-            className="p-1 rounded text-gray-400 hover:text-white hover:bg-magic-hover transition-colors"
-            title="Ajustar al Ancho"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Fit Page */}
-          <button
-            onClick={handleFitPage}
-            className="p-1 rounded text-gray-400 hover:text-white hover:bg-magic-hover transition-colors"
-            title="Ajustar Página Completa"
-          >
-            <Minimize2 className="w-3.5 h-3.5" />
-          </button>
         </div>
       </div>
 
-      {/* Main Scrollable Canvas Area (Never clips top or left!) */}
+      {/* Main Scrollable Canvas Area (Adapts to light & dark mode) */}
       <div 
         ref={containerRef}
         onMouseDown={handleMouseDown}
@@ -419,18 +465,17 @@ export const EditorView: React.FC<EditorViewProps> = ({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}
-        className={`flex-1 overflow-auto relative bg-[#060608] ${
+        className={`flex-1 overflow-auto relative bg-[#E5E7EB] dark:bg-[#08080C] ${
           isHandActive
             ? isDraggingCanvas ? 'cursor-grabbing' : 'cursor-grab'
             : isAddingText ? 'cursor-crosshair' : 'cursor-default'
         }`}
       >
-        {/* Inner wrapper ensures top padding and horizontal centering without flex centering bugs */}
-        <div className="min-h-full min-w-full flex items-start justify-center p-10 pb-28">
+        <div className="min-h-full min-w-full flex items-start justify-center p-10 pb-36">
           <div 
             onClick={handlePageClick}
             style={{ width: `${BASE_WIDTH * zoom}px` }}
-            className="relative shadow-2xl transition-all duration-75 rounded-sm overflow-hidden border border-gray-700/60 bg-white shrink-0"
+            className="relative shadow-2xl transition-all duration-75 rounded-sm overflow-hidden border border-gray-300 dark:border-gray-800 bg-white shrink-0"
           >
             {/* High-res page rendering */}
             <img
@@ -441,32 +486,54 @@ export const EditorView: React.FC<EditorViewProps> = ({
               className="w-full h-auto block pointer-events-none select-none bg-white"
             />
 
-            {/* Interactive Bounding Boxes for Paragraphs (Only active in Select mode) */}
+            {/* Interactive Bounding Boxes for Recognized Paragraphs */}
             {imageLoaded && !isHandActive && paragraphs.map((p) => {
               const isEditing = editingParagraph?.paragraph === p.paragraph;
               const style = getBoxStyle(p.rect);
 
               return (
                 <div
-                  key={p.paragraph}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleParagraphClick(p);
-                  }}
+                  key={`p_${p.paragraph}`}
+                  onClick={(e) => handleParagraphClick(p, e)}
                   style={style}
-                  className={`absolute group cursor-pointer transition-all ${
+                  className={`absolute group cursor-pointer transition-all rounded-sm ${
                     isEditing
                       ? 'ring-2 ring-indigo-500 bg-indigo-500/20 z-20'
                       : 'hover:ring-2 hover:ring-indigo-400/80 hover:bg-indigo-500/10 z-10'
                   }`}
-                  title={`Párrafo ${p.paragraph}: Haz clic para editar`}
+                  title={`Párrafo ${p.paragraph}: Haz clic para editar texto`}
                 >
                   {!isEditing && (
-                    <div className="hidden group-hover:flex items-center gap-1 absolute -top-6 left-0 px-1.5 py-0.5 rounded bg-magic-card text-[10px] text-white font-medium border border-magic-border shadow-lg pointer-events-none whitespace-nowrap z-30">
-                      <Type className="w-2.5 h-2.5 text-indigo-400" />
+                    <div className="hidden group-hover:flex items-center gap-1 absolute -top-6 left-0 px-1.5 py-0.5 rounded bg-white dark:bg-magic-card text-[10px] text-gray-900 dark:text-white font-medium border border-gray-200 dark:border-magic-border shadow-lg pointer-events-none whitespace-nowrap z-30">
+                      <Type className="w-2.5 h-2.5 text-indigo-500" />
                       <span>Editar texto</span>
                     </div>
                   )}
+                </div>
+              );
+            })}
+
+            {/* Recognized Images on the page */}
+            {imageLoaded && !isHandActive && images.map((img) => {
+              const isSelected = selectedImage?.image === img.image;
+              const style = getBoxStyle(img.box);
+
+              return (
+                <div
+                  key={`img_${img.image}`}
+                  onClick={(e) => handleImageClick(img, e)}
+                  style={style}
+                  className={`absolute group cursor-pointer transition-all border-2 border-dashed rounded-sm ${
+                    isSelected
+                      ? 'border-emerald-500 bg-emerald-500/20 ring-2 ring-emerald-500 z-20'
+                      : 'border-emerald-400/60 hover:border-emerald-500 hover:bg-emerald-500/10 z-10'
+                  }`}
+                  title={`Imagen #${img.image} • Clic para rotar o eliminar`}
+                >
+                  <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-emerald-600 text-[10px] text-white font-semibold flex items-center gap-1 shadow">
+                    <ImageIcon className="w-2.5 h-2.5" />
+                    <span>Img #{img.image}</span>
+                  </div>
                 </div>
               );
             })}
@@ -474,13 +541,62 @@ export const EditorView: React.FC<EditorViewProps> = ({
         </div>
       </div>
 
-      {/* Floating WYSIWYG Format Bar for Editing */}
-      {editingParagraph && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl bg-magic-card border border-magic-border/90 rounded-2xl p-4 shadow-2xl shadow-black/70 backdrop-blur-xl z-40 animate-in fade-in slide-in-from-bottom-4">
-          <div className="flex items-center justify-between pb-3 mb-3 border-b border-magic-border">
+      {/* Floating Action Bar for Selected Image */}
+      {selectedImage && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-md bg-white dark:bg-magic-card border border-gray-200 dark:border-magic-border rounded-2xl p-4 shadow-2xl z-40 animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex items-center justify-between pb-2 mb-3 border-b border-gray-200 dark:border-magic-border">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-bold text-white">
+              <ImageIcon className="w-4 h-4 text-emerald-500" />
+              <span className="text-xs font-bold text-gray-900 dark:text-white">
+                Imagen #{selectedImage.image} ({selectedImage.pixels ? `${selectedImage.pixels[0]}x${selectedImage.pixels[1]}px` : 'Detectada'})
+              </span>
+            </div>
+            <button
+              onClick={() => setSelectedImage(null)}
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRotateImage}
+              disabled={isSaving}
+              className="flex-1 py-2 rounded-xl bg-gray-100 dark:bg-magic-bg hover:bg-gray-200 dark:hover:bg-magic-hover text-xs font-medium text-gray-800 dark:text-gray-200 flex items-center justify-center gap-1.5 border border-gray-200 dark:border-magic-border transition-colors"
+            >
+              <RotateCw className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Girar 90°</span>
+            </button>
+
+            <button
+              onClick={handleFlipImage}
+              disabled={isSaving}
+              className="flex-1 py-2 rounded-xl bg-gray-100 dark:bg-magic-bg hover:bg-gray-200 dark:hover:bg-magic-hover text-xs font-medium text-gray-800 dark:text-gray-200 flex items-center justify-center gap-1.5 border border-gray-200 dark:border-magic-border transition-colors"
+            >
+              <FlipHorizontal className="w-3.5 h-3.5 text-purple-500" />
+              <span>Voltear H</span>
+            </button>
+
+            <button
+              onClick={handleDeleteImage}
+              disabled={isSaving}
+              className="py-2 px-3 rounded-xl bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 text-xs font-medium text-red-600 dark:text-red-400 flex items-center justify-center gap-1.5 border border-red-200 dark:border-red-900/30 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Eliminar</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating WYSIWYG Format Bar for Paragraph Editing (Light & Dark theme aware!) */}
+      {editingParagraph && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl bg-white dark:bg-magic-card border border-gray-200 dark:border-magic-border rounded-2xl p-4 shadow-2xl z-40 animate-in fade-in slide-in-from-bottom-4 transition-colors">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-gray-200 dark:border-magic-border">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-bold text-gray-900 dark:text-white">
                 Editando Párrafo #{editingParagraph.paragraph} (Página {currentPage})
               </span>
             </div>
@@ -490,15 +606,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
               <select
                 value={editFont}
                 onChange={(e) => setEditFont(e.target.value)}
-                className="bg-magic-bg border border-magic-border rounded-lg text-xs text-gray-200 px-2 py-1 outline-none focus:border-indigo-500"
+                className="bg-gray-50 dark:bg-magic-bg border border-gray-200 dark:border-magic-border rounded-lg text-xs text-gray-800 dark:text-gray-200 px-2 py-1 outline-none focus:border-indigo-500"
               >
                 <option value="helvetica">Helvetica</option>
                 <option value="times">Times Roman</option>
                 <option value="courier">Courier</option>
               </select>
 
-              <div className="flex items-center gap-1 bg-magic-bg border border-magic-border rounded-lg px-2 py-1 text-xs text-gray-200">
-                <span className="text-[10px] text-gray-500">Tam:</span>
+              <div className="flex items-center gap-1 bg-gray-50 dark:bg-magic-bg border border-gray-200 dark:border-magic-border rounded-lg px-2 py-1 text-xs text-gray-800 dark:text-gray-200">
+                <span className="text-[10px] text-gray-400">Tam:</span>
                 <input
                   type="number"
                   min="6"
@@ -511,13 +627,13 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
               <button
                 onClick={() => setIsBold(!isBold)}
-                className={`p-1 rounded text-xs transition-colors ${isBold ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                className={`p-1 rounded text-xs transition-colors ${isBold ? 'bg-indigo-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white'}`}
               >
                 <Bold className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={() => setIsItalic(!isItalic)}
-                className={`p-1 rounded text-xs transition-colors ${isItalic ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}
+                className={`p-1 rounded text-xs transition-colors ${isItalic ? 'bg-indigo-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:text-black dark:hover:text-white'}`}
               >
                 <Italic className="w-3.5 h-3.5" />
               </button>
@@ -539,7 +655,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             onChange={(e) => setEditTextValue(e.target.value)}
             rows={3}
             autoFocus
-            className="w-full bg-magic-bg/90 border border-magic-border rounded-xl p-3 text-sm text-gray-100 font-sans outline-none focus:border-indigo-500 transition-colors resize-none leading-relaxed"
+            className="w-full bg-gray-50 dark:bg-magic-bg border border-gray-200 dark:border-magic-border rounded-xl p-3 text-sm text-gray-900 dark:text-gray-100 font-sans outline-none focus:border-indigo-500 transition-colors resize-none leading-relaxed"
             placeholder="Escribe el nuevo texto aquí..."
           />
 
@@ -547,7 +663,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             <button
               onClick={() => setEditingParagraph(null)}
               disabled={isSaving}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-gray-400 hover:text-white hover:bg-magic-hover transition-colors"
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-magic-hover transition-colors"
             >
               Cancelar
             </button>
@@ -575,10 +691,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
       {/* Floating Modal for Adding New Text */}
       {newTextCoords && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-md bg-magic-card border border-magic-border rounded-2xl p-4 shadow-2xl z-40">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-magic-border">
-            <span className="text-xs font-bold text-white">Añadir Nuevo Texto</span>
-            <button onClick={() => setNewTextCoords(null)} className="text-gray-400 hover:text-white">
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-md bg-white dark:bg-magic-card border border-gray-200 dark:border-magic-border rounded-2xl p-4 shadow-2xl z-40">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-200 dark:border-magic-border">
+            <span className="text-xs font-bold text-gray-900 dark:text-white">Añadir Nuevo Texto</span>
+            <button onClick={() => setNewTextCoords(null)} className="text-gray-400 hover:text-gray-700 dark:hover:text-white">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -587,18 +703,23 @@ export const EditorView: React.FC<EditorViewProps> = ({
             value={newTextValue}
             onChange={(e) => setNewTextValue(e.target.value)}
             rows={2}
-            autoFocus
-            className="w-full bg-magic-bg border border-magic-border rounded-xl p-2.5 text-xs text-white outline-none focus:border-indigo-500 resize-none"
-            placeholder="Escribe el texto a insertar..."
+            className="w-full bg-gray-50 dark:bg-magic-bg border border-gray-200 dark:border-magic-border rounded-xl p-2.5 text-xs text-gray-900 dark:text-white outline-none focus:border-indigo-500 resize-none mb-3"
+            placeholder="Texto a añadir..."
           />
 
-          <div className="flex items-center justify-end gap-2 mt-2">
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setNewTextCoords(null)}
+              className="px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-400"
+            >
+              Cancelar
+            </button>
             <button
               onClick={handleSaveNewText}
-              disabled={isSaving}
-              className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
+              disabled={isSaving || !newTextValue.trim()}
+              className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/30 disabled:opacity-50"
             >
-              {isSaving ? 'Insertando...' : 'Insertar en PDF'}
+              Estampar Texto
             </button>
           </div>
         </div>

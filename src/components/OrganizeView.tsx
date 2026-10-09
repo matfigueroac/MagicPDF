@@ -123,31 +123,31 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
   const hasChanges = pages.some(p => p.rotation !== 0 || p.isDeleted);
 
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-4rem)] overflow-hidden bg-magic-bg select-none">
+    <div className="flex-1 flex flex-col h-full overflow-hidden select-none bg-gray-50 dark:bg-magic-bg transition-colors">
       {/* Top Action Bar */}
-      <div className="h-14 border-b border-magic-border bg-magic-card/90 px-6 flex items-center justify-between shrink-0">
+      <div className="h-12 border-b border-gray-200 dark:border-magic-border bg-white dark:bg-magic-card px-4 flex items-center justify-between shrink-0 transition-colors">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-sm text-white">Organizar Páginas</span>
-            <span className="text-xs text-gray-400 font-mono bg-magic-bg px-2 py-0.5 rounded-md border border-magic-border">
+            <span className="font-bold text-sm text-gray-900 dark:text-white">Organizar Páginas</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400 font-mono bg-gray-100 dark:bg-magic-bg px-2 py-0.5 rounded-md border border-gray-200 dark:border-magic-border">
               {activePageCount} de {document.pages} páginas activas
             </span>
           </div>
 
-          <div className="h-4 w-px bg-magic-border mx-1" />
+          <div className="h-4 w-px bg-gray-200 dark:bg-magic-border mx-1" />
 
           <button
             onClick={handleRotateAll}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-magic-bg hover:bg-magic-hover text-xs font-medium text-gray-300 hover:text-white border border-magic-border transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-magic-bg hover:bg-gray-200 dark:hover:bg-magic-hover text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-magic-border transition-colors"
           >
-            <RotateCw className="w-3.5 h-3.5" />
+            <RotateCw className="w-3.5 h-3.5 text-indigo-500" />
             <span>Rotar Todo 90°</span>
           </button>
 
           {hasChanges && (
             <button
               onClick={handleReset}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-magic-bg hover:bg-magic-hover text-xs font-medium text-gray-400 hover:text-white border border-magic-border transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-magic-bg hover:bg-gray-200 dark:hover:bg-magic-hover text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-magic-border transition-colors"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Restablecer</span>
@@ -182,26 +182,26 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
             return (
               <div
                 key={index}
-                className={`group relative rounded-2xl border transition-all duration-200 flex flex-col bg-magic-card overflow-hidden shadow-lg ${
+                className={`group relative rounded-2xl border transition-all duration-200 flex flex-col bg-white dark:bg-magic-card overflow-hidden shadow-sm hover:shadow-lg ${
                   p.isDeleted
-                    ? 'opacity-30 border-rose-500/50 bg-rose-950/10'
-                    : 'border-magic-border hover:border-indigo-500/60 hover:shadow-indigo-500/10'
+                    ? 'opacity-30 border-rose-500/50 bg-rose-50 dark:bg-rose-950/10'
+                    : 'border-gray-200 dark:border-magic-border hover:border-indigo-500/60 hover:shadow-indigo-500/10'
                 }`}
               >
                 {/* Header Badge */}
-                <div className="h-8 px-3 flex items-center justify-between bg-magic-bg/70 border-b border-magic-border/50 text-[11px] font-semibold">
-                  <span className={p.isDeleted ? 'line-through text-rose-400' : 'text-gray-300'}>
+                <div className="h-8 px-3 flex items-center justify-between bg-gray-50 dark:bg-magic-bg/70 border-b border-gray-200 dark:border-magic-border/50 text-[11px] font-semibold">
+                  <span className={p.isDeleted ? 'line-through text-rose-500' : 'text-gray-700 dark:text-gray-300'}>
                     Página {p.originalPage}
                   </span>
                   {p.rotation > 0 && !p.isDeleted && (
-                    <span className="text-[10px] text-indigo-400 font-mono">
+                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono">
                       {p.rotation}°
                     </span>
                   )}
                 </div>
 
                 {/* Thumbnail Preview with Rotation Transform */}
-                <div className="p-3 flex items-center justify-center bg-gray-900/50 aspect-[3/4] overflow-hidden relative">
+                <div className="p-3 flex items-center justify-center bg-gray-100 dark:bg-gray-900/50 aspect-[3/4] overflow-hidden relative">
                   <img
                     src={getPageImageUrl(document.filename, p.originalPage, 60)}
                     alt={`Página ${p.originalPage}`}
@@ -219,13 +219,13 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
                 </div>
 
                 {/* Footer Controls */}
-                <div className="h-10 px-2 flex items-center justify-around bg-magic-bg/90 border-t border-magic-border/50">
+                <div className="h-10 px-2 flex items-center justify-around bg-gray-50 dark:bg-magic-bg/90 border-t border-gray-200 dark:border-magic-border/50">
                   {/* Rotate */}
                   <button
                     onClick={() => handleRotate(index)}
                     disabled={p.isDeleted}
                     title="Rotar 90°"
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-magic-hover disabled:opacity-30 transition-colors"
+                    className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover disabled:opacity-30 transition-colors"
                   >
                     <RotateCw className="w-3.5 h-3.5" />
                   </button>
@@ -235,7 +235,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
                     onClick={() => handleMoveLeft(index)}
                     disabled={index === 0 || p.isDeleted}
                     title="Mover a la izquierda"
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-magic-hover disabled:opacity-20 transition-colors"
+                    className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover disabled:opacity-20 transition-colors"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
                   </button>
@@ -245,7 +245,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
                     onClick={() => handleMoveRight(index)}
                     disabled={index === pages.length - 1 || p.isDeleted}
                     title="Mover a la derecha"
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-magic-hover disabled:opacity-20 transition-colors"
+                    className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover disabled:opacity-20 transition-colors"
                   >
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
@@ -256,8 +256,8 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
                     title={p.isDeleted ? 'Restaurar página' : 'Eliminar página'}
                     className={`p-1.5 rounded-lg transition-colors ${
                       p.isDeleted
-                        ? 'text-rose-400 hover:bg-rose-500/20'
-                        : 'text-gray-400 hover:text-rose-400 hover:bg-magic-hover'
+                        ? 'text-rose-500 hover:bg-rose-500/20'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-rose-500 hover:bg-gray-200 dark:hover:bg-magic-hover'
                     }`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />

@@ -12,7 +12,8 @@ import {
   openFilePath, 
   exportDocumentText, 
   compressDocument,
-  organizePages 
+  organizePages,
+  saveToPath 
 } from './api/client';
 import { Copy, Check, Download, X } from 'lucide-react';
 
@@ -21,6 +22,7 @@ declare global {
     electronAPI?: {
       onOpenPdf: (callback: (filePath: string) => void) => void;
       getInitialFile: () => Promise<string | null>;
+      openFileDialog: () => Promise<{ canceled: boolean; filePaths: string[] }>;
       saveFileAs: (params: { defaultName: string; tempPath: string }) => Promise<{ success: boolean; filePath?: string; canceled?: boolean }>;
       saveFile: (params: { originalPath: string; tempPath: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>;
       printDocument: () => Promise<void>;
@@ -123,21 +125,66 @@ export const App: React.FC = () => {
         handlePrint();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
         e.preventDefault();
-        fileInputRef.current?.click();
+        handleOpenAction();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeDoc]);
 
-  // Open multiple files from disk
+  // Open files using native Windows picker or fallback to web input
+  const handleOpenAction = async () => {
+    if (window.electronAPI?.openFileDialog) {
+      try {
+        const res = await window.electronAPI.openFileDialog();
+        if (!res.canceled && res.filePaths && res.filePaths.length > 0) {
+          setIsUploading(true);
+          const loadedDocs: PdfDocument[] = [];
+          for (const filePath of res.filePaths) {
+            const doc = await openFilePath(filePath);
+            loadedDocs.push(doc);
+          }
+          setDocuments(prev => {
+            const ids = new Set(loadedDocs.map(d => d.id));
+            return [...prev.filter(d => !ids.has(d.id)), ...loadedDocs];
+          });
+          if (loadedDocs.length > 0) {
+            setActiveDoc(loadedDocs[0]);
+            setCurrentPage(1);
+            setViewMode('viewer'); // Opens in VIEWER mode by default
+          }
+        }
+        return;
+      } catch (err) {
+        console.warn('Native open dialog failed, falling back to input:', err);
+      } finally {
+        setIsUploading(false);
+      }
+    }
+    fileInputRef.current?.click();
+  };
+
+  // Open multiple files from disk or drag-and-drop
   const handleFilesSelected = async (files: File[]) => {
     try {
       setIsUploading(true);
-      const uploadedDocs = await uploadFiles(files);
-      setDocuments(prev => [...prev, ...uploadedDocs]);
-      if (uploadedDocs.length > 0) {
-        setActiveDoc(uploadedDocs[0]);
+      const loadedDocs: PdfDocument[] = [];
+      for (const file of files) {
+        const diskPath = (file as any).path;
+        if (diskPath && typeof diskPath === 'string') {
+          const doc = await openFilePath(diskPath);
+          loadedDocs.push(doc);
+        } else {
+          const uploaded = await uploadFiles([file]);
+          loadedDocs.push(...uploaded);
+        }
+      }
+      setDocuments(prev => {
+        const ids = new Set(loadedDocs.map(d => d.id));
+        return [...prev.filter(d => !ids.has(d.id)), ...loadedDocs];
+      });
+      if (loadedDocs.length > 0) {
+        setActiveDoc(loadedDocs[0]);
         setCurrentPage(1);
         setViewMode('viewer'); // Opens in VIEWER mode by default
       }
@@ -188,39 +235,46 @@ export const App: React.FC = () => {
     }
   };
 
-  // NATIVE DESKTOP FILE OPERATIONS
+  // NATIVE DESKTOP FILE OPERATIONS (Overwrites in-place on disk)
   const handleSave = async () => {
     if (!activeDoc) return;
-    if (activeDoc.originalDiskPath && window.electronAPI) {
-      try {
-        const res = await window.electronAPI.saveFile({
-          originalPath: activeDoc.originalDiskPath,
-          tempPath: activeDoc.path
-        });
-        if (res.success) {
-          showToast(`Guardado en ${activeDoc.name}`);
-        } else {
-          // If overwrite fails, fall back to Save As
-          await handleSaveAs();
+    if (activeDoc.originalDiskPath) {
+      if (window.electronAPI?.saveFile) {
+        try {
+          const res = await window.electronAPI.saveFile({
+            originalPath: activeDoc.originalDiskPath,
+            tempPath: activeDoc.path
+          });
+          if (res.success) {
+            showToast(`✓ Guardado en ${activeDoc.name}`);
+            return;
+          }
+        } catch (err) {
+          console.warn('Error en saveFile de electronAPI, probando API server:', err);
         }
-      } catch (err) {
-        await handleSaveAs();
       }
-    } else {
-      await handleSaveAs();
+      try {
+        await saveToPath(activeDoc.filename, activeDoc.originalDiskPath);
+        showToast(`✓ Guardado en ${activeDoc.name}`);
+        return;
+      } catch (err) {
+        console.error('Error al guardar archivo en disco:', err);
+      }
     }
+    // Only if there is no originalDiskPath (e.g. web browser preview), ask where to save
+    await handleSaveAs();
   };
 
   const handleSaveAs = async () => {
     if (!activeDoc) return;
-    if (window.electronAPI) {
+    if (window.electronAPI?.saveFileAs) {
       const res = await window.electronAPI.saveFileAs({
         defaultName: activeDoc.name,
         tempPath: activeDoc.path
       });
       if (res.success && res.filePath) {
         activeDoc.originalDiskPath = res.filePath;
-        showToast('Guardado exitosamente');
+        showToast(`✓ Guardado como ${activeDoc.name}`);
       }
     } else {
       // Fallback for browser testing
@@ -311,7 +365,7 @@ export const App: React.FC = () => {
         activeDoc={activeDoc}
         onSelectDoc={handleSelectDoc}
         onCloseDoc={handleCloseDoc}
-        onUploadClick={() => fileInputRef.current?.click()}
+        onUploadClick={handleOpenAction}
         onSave={handleSave}
         onSaveAs={handleSaveAs}
         onExportText={handleExportText}
@@ -353,6 +407,7 @@ export const App: React.FC = () => {
               onSelectDoc={handleSelectDoc}
               onNavigate={handleNavigate}
               isUploading={isUploading}
+              onOpenClick={handleOpenAction}
             />
           )}
 

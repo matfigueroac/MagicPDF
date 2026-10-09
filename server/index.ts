@@ -18,6 +18,9 @@ import {
   compressPdf,
   watermarkPdf,
   exportText,
+  getPageLines,
+  getPageImages,
+  editImage,
   getAppPaths
 } from './pdfcraft.js';
 
@@ -164,6 +167,64 @@ app.get('/api/paragraphs/:filename/:page', async (req, res) => {
     res.json({ success: true, page: pageNum, paragraphs });
   } catch (error: any) {
     console.error('Error in /api/paragraphs:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 4b. Get individual text lines for exact text selection & highlighting
+ */
+app.get('/api/lines/:filename/:page', async (req, res) => {
+  try {
+    const filePath = path.join(UPLOADS_DIR, req.params.filename);
+    const pageNum = parseInt(req.params.page, 10) || 1;
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    const lines = await getPageLines(filePath, pageNum);
+    res.json({ success: true, page: pageNum, lines });
+  } catch (error: any) {
+    console.error('Error in /api/lines:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 4c. Get recognized images on a page
+ */
+app.get('/api/images/:filename/:page', async (req, res) => {
+  try {
+    const filePath = path.join(UPLOADS_DIR, req.params.filename);
+    const pageNum = parseInt(req.params.page, 10) || 1;
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    const images = await getPageImages(filePath, pageNum);
+    res.json({ success: true, page: pageNum, images });
+  } catch (error: any) {
+    console.error('Error in /api/images:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 4d. Edit an image on a page (delete, rotate, replace)
+ */
+app.post('/api/image-edit', async (req, res) => {
+  try {
+    const { filename, page, image, action, newImagePath, quarters, rect } = req.body;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    await editImage(filePath, page, image, action, {
+      path: newImagePath,
+      quarters,
+      rect
+    });
+    res.json({ success: true, message: 'Imagen modificada exitosamente' });
+  } catch (error: any) {
+    console.error('Error in /api/image-edit:', error);
     res.status(500).json({ error: error.message });
   }
 });

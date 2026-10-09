@@ -1,4 +1,4 @@
-import { PdfDocument, ParagraphInfo } from '../types';
+import { PdfDocument, ParagraphInfo, LineInfo, ImageInfo } from '../types';
 
 const API_BASE = '/api';
 
@@ -36,6 +36,35 @@ export async function getParagraphs(filename: string, page: number): Promise<Par
   if (!res.ok) throw new Error('Error al obtener párrafos');
   const data = await res.json();
   return data.paragraphs;
+}
+
+export async function getPageLines(filename: string, page: number): Promise<LineInfo[]> {
+  const res = await fetch(`${API_BASE}/lines/${encodeURIComponent(filename)}/${page}`);
+  if (!res.ok) throw new Error('Error al obtener líneas de texto');
+  const data = await res.json();
+  return data.lines;
+}
+
+export async function getPageImages(filename: string, page: number): Promise<ImageInfo[]> {
+  const res = await fetch(`${API_BASE}/images/${encodeURIComponent(filename)}/${page}`);
+  if (!res.ok) throw new Error('Error al obtener imágenes');
+  const data = await res.json();
+  return data.images;
+}
+
+export async function editImage(
+  filename: string,
+  page: number,
+  image: number,
+  action: 'rotate' | 'delete' | 'replace' | 'flip_horizontal',
+  options: { newImagePath?: string; quarters?: number } = {}
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/image-edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, page, image, action, ...options }),
+  });
+  if (!res.ok) throw new Error('Error al modificar imagen');
 }
 
 export async function editText(

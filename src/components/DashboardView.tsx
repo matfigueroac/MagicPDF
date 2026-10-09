@@ -21,6 +21,7 @@ interface DashboardViewProps {
   onSelectDoc: (doc: PdfDocument) => void;
   onNavigate: (mode: ViewMode, tool?: ToolType) => void;
   isUploading: boolean;
+  onOpenClick?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -29,6 +30,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectDoc,
   onNavigate,
   isUploading,
+  onOpenClick,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -121,19 +123,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="flex-1 overflow-y-auto px-6 py-8 max-w-6xl mx-auto w-full select-none">
       {/* Hero Header */}
       <div className="flex flex-col items-center text-center mb-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold mb-4 backdrop-blur-sm">
-          <Zap className="w-3.5 h-3.5 text-indigo-400" />
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-300 text-xs font-semibold mb-4 backdrop-blur-sm">
+          <Zap className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
           <span>Motor nativo ultra rápido • 100% privado y offline</span>
         </div>
 
-        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-3">
+        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-3 text-gray-900 dark:text-white">
           Edita cualquier PDF como en{' '}
-          <span className="bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-400 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 dark:from-indigo-400 dark:via-purple-300 dark:to-pink-400 bg-clip-text text-transparent">
             Adobe Pro
           </span>
         </h1>
 
-        <p className="text-gray-400 text-sm md:text-base max-w-2xl leading-relaxed">
+        <p className="text-gray-600 dark:text-gray-400 text-sm md:text-base max-w-2xl leading-relaxed">
           Edita texto directamente sobre el PDF, organiza páginas con cuadrícula visual, une, divide, 
           estampa firmas y protege tus documentos con máxima velocidad.
         </p>
@@ -144,11 +146,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => onOpenClick ? onOpenClick() : fileInputRef.current?.click()}
         className={`relative group cursor-pointer rounded-2xl border-2 border-dashed p-10 flex flex-col items-center justify-center text-center transition-all duration-300 mb-12 ${
           isDragging
-            ? 'border-indigo-400 bg-indigo-500/10 scale-[1.01] shadow-2xl shadow-indigo-500/20'
-            : 'border-magic-border hover:border-indigo-500/50 bg-magic-card/60 hover:bg-magic-card shadow-lg hover:shadow-indigo-500/5'
+            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 scale-[1.01] shadow-2xl shadow-indigo-500/20'
+            : 'border-gray-300 dark:border-magic-border hover:border-indigo-500 bg-white dark:bg-magic-card/60 hover:bg-gray-50 dark:hover:bg-magic-card shadow-lg hover:shadow-indigo-500/5'
         }`}
       >
         <input
@@ -168,10 +170,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </div>
 
-        <h3 className="text-lg font-bold text-white mb-1">
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
           {isUploading ? 'Procesando PDF...' : 'Arrastra y suelta tu archivo PDF aquí'}
         </h3>
-        <p className="text-xs text-gray-400 mb-4">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
           o haz clic para seleccionar documentos desde tu equipo
         </p>
 
