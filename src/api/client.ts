@@ -150,6 +150,46 @@ export async function redactArea(
   if (!res.ok) throw new Error('Error al censurar área');
 }
 
+export async function compressDocument(filename: string): Promise<{ beforeSize: number; afterSize: number; reducedPercent: number }> {
+  const res = await fetch(`${API_BASE}/compress`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename }),
+  });
+  if (!res.ok) throw new Error('Error al comprimir documento');
+  return res.json();
+}
+
+export async function watermarkDocument(
+  filename: string,
+  text: string,
+  options: { opacity?: number; color?: string; rotation?: number; fontSize?: number } = {}
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/watermark`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, text, ...options }),
+  });
+  if (!res.ok) throw new Error('Error al aplicar marca de agua');
+}
+
+export async function exportDocumentText(filename: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/export-text/${encodeURIComponent(filename)}`);
+  if (!res.ok) throw new Error('Error al exportar texto');
+  const data = await res.json();
+  return data.text;
+}
+
+export async function saveToPath(filename: string, targetPath: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/save-to-path`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, targetPath }),
+  });
+  if (!res.ok) throw new Error('Error al guardar en el disco');
+}
+
 export function getDownloadUrl(filename: string): string {
   return `${API_BASE}/download/${encodeURIComponent(filename)}`;
 }
+

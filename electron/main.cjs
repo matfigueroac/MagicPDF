@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -123,6 +123,43 @@ async function createWindow() {
 
 ipcMain.handle('get-initial-file', () => {
   return initialPdfPath;
+});
+
+ipcMain.handle('save-file-as', async (_event, { defaultName, tempPath }) => {
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Guardar como...',
+      defaultPath: defaultName || 'documento.pdf',
+      filters: [{ name: 'Documento PDF (*.pdf)', extensions: ['pdf'] }]
+    });
+    if (!canceled && filePath && tempPath && fs.existsSync(tempPath)) {
+      fs.copyFileSync(tempPath, filePath);
+      return { success: true, filePath };
+    }
+    return { success: false, canceled };
+  } catch (err) {
+    console.error('Error in save-file-as:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('save-file', async (_event, { originalPath, tempPath }) => {
+  try {
+    if (originalPath && tempPath && fs.existsSync(tempPath)) {
+      fs.copyFileSync(tempPath, originalPath);
+      return { success: true, filePath: originalPath };
+    }
+    return { success: false, error: 'Ruta no válida o archivo inexistente' };
+  } catch (err) {
+    console.error('Error in save-file:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('print-document', async () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.print();
+  }
 });
 
 app.whenReady().then(async () => {

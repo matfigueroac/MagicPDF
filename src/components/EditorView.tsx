@@ -24,11 +24,19 @@ import { getPageImageUrl, getParagraphs, editText, addText } from '../api/client
 
 interface EditorViewProps {
   document: PdfDocument;
+  currentPage: number;
+  onPageChange: (page: number) => void;
   onDocumentUpdated: () => void;
+  onReturnToViewer: () => void;
 }
 
-export const EditorView: React.FC<EditorViewProps> = ({ document, onDocumentUpdated }) => {
-  const [currentPage, setCurrentPage] = useState(1);
+export const EditorView: React.FC<EditorViewProps> = ({ 
+  document, 
+  currentPage,
+  onPageChange,
+  onDocumentUpdated,
+  onReturnToViewer 
+}) => {
   const [zoom, setZoom] = useState(1.0);
   const [paragraphs, setParagraphs] = useState<ParagraphInfo[]>([]);
   const [isLoadingParagraphs, setIsLoadingParagraphs] = useState(false);
@@ -249,28 +257,40 @@ export const EditorView: React.FC<EditorViewProps> = ({ document, onDocumentUpda
   const isHandActive = interactionMode === 'hand' || isSpacePressed;
 
   return (
-    <div className="flex-1 flex flex-col h-[calc(100vh-4rem)] overflow-hidden bg-magic-bg select-none">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#E5E7EB] dark:bg-[#08080C] select-none transition-colors">
       {/* Top Toolbar */}
-      <div className="h-12 border-b border-magic-border bg-magic-card/90 px-4 flex items-center justify-between shrink-0 z-20">
-        {/* Left: Page Navigation & Mode */}
+      <div className="h-11 border-b border-gray-200 dark:border-magic-border bg-white dark:bg-magic-card px-4 flex items-center justify-between shrink-0 z-20 shadow-sm transition-colors">
+        {/* Left: Return to Viewer & Page Navigation */}
         <div className="flex items-center gap-2">
+          {/* Back to Viewer button */}
+          <button
+            onClick={onReturnToViewer}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-magic-bg hover:bg-gray-200 dark:hover:bg-magic-hover text-gray-700 dark:text-gray-300 text-xs font-medium border border-gray-200 dark:border-magic-border transition-colors mr-1"
+            title="Volver a la vista normal de lectura"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            <span>Modo Visor</span>
+          </button>
+
+          <div className="h-4 w-px bg-gray-200 dark:bg-magic-border mx-0.5" />
+
           {/* Page controls */}
           <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
             disabled={currentPage <= 1}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-magic-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-magic-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <span className="text-xs font-semibold text-gray-200">
-            Página <span className="text-indigo-400">{currentPage}</span> de {document.pages}
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+            Página <span className="text-indigo-600 dark:text-indigo-400">{currentPage}</span> de {document.pages}
           </span>
 
           <button
-            onClick={() => setCurrentPage(p => Math.min(document.pages, p + 1))}
+            onClick={() => onPageChange(Math.min(document.pages, currentPage + 1))}
             disabled={currentPage >= document.pages}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-magic-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-magic-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>

@@ -15,6 +15,9 @@ import {
   reorganizePages,
   protectPdf,
   redactArea,
+  compressPdf,
+  watermarkPdf,
+  exportText,
   getAppPaths
 } from './pdfcraft.js';
 
@@ -97,6 +100,7 @@ app.post('/api/open-file-path', async (req, res) => {
         name: path.basename(targetPath),
         filename,
         path: destPath,
+        originalDiskPath: targetPath,
         pages: info.pages,
         size: fs.statSync(destPath).size
       }
@@ -349,7 +353,7 @@ app.post('/api/protect', async (req, res) => {
 });
 
 /**
- * 13. Download PDF
+ * 13. Download PDF (fallback)
  */
 app.get('/api/download/:filename', (req, res) => {
   const filePath = path.join(UPLOADS_DIR, req.params.filename);
@@ -357,6 +361,93 @@ app.get('/api/download/:filename', (req, res) => {
     return res.status(404).json({ error: 'Archivo no encontrado' });
   }
   res.download(filePath, req.params.filename);
+});
+
+/**
+ * 14. Compress PDF (Reduce Size)
+ */
+app.post('/api/compress', async (req, res) => {
+  try {
+    const { filename } = req.body;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    const beforeSize = fs.statSync(filePath).size;
+    await compressPdf(filePath);
+    const afterSize = fs.statSync(filePath).size;
+    res.json({
+      success: true,
+      message: 'PDF optimizado y comprimido exitosamente',
+      beforeSize,
+      afterSize,
+      reducedPercent: Math.round(((beforeSize - afterSize) / beforeSize) * 100)
+    });
+  } catch (error: any) {
+    console.error('Error in /api/compress:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 15. Watermark PDF
+ */
+app.post('/api/watermark', async (req, res) => {
+  try {
+    const { filename, text, opacity, color, rotation, fontSize } = req.body;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    await watermarkPdf(filePath, text, {
+      opacity: opacity ? parseFloat(opacity) : 0.3,
+      color: color || '#EF4444',
+      rotation: rotation ? parseFloat(rotation) : 45,
+      font_size: fontSize ? parseFloat(fontSize) : 44
+    });
+    res.json({ success: true, message: 'Marca de agua aplicada exitosamente' });
+  } catch (error: any) {
+    console.error('Error in /api/watermark:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 16. Export Text from PDF
+ */
+app.get('/api/export-text/:filename', async (req, res) => {
+  try {
+    const filePath = path.join(UPLOADS_DIR, req.params.filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+    const text = await exportText(filePath);
+    res.json({ success: true, text });
+  } catch (error: any) {
+    console.error('Error in /api/export-text:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * 17. Save / Overwrite file to custom target path on disk
+ */
+app.post('/api/save-to-path', async (req, res) => {
+  try {
+    const { filename, targetPath } = req.body;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo origen no encontrado' });
+    }
+    if (!targetPath) {
+      return res.status(400).json({ error: 'Ruta de destino requerida' });
+    }
+    fs.copyFileSync(filePath, targetPath);
+    res.json({ success: true, message: `Guardado en ${targetPath}`, path: targetPath });
+  } catch (error: any) {
+    console.error('Error in /api/save-to-path:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Serve static frontend in production if dist directory exists

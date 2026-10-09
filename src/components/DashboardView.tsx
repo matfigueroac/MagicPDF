@@ -185,11 +185,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Quick Tools Grid */}
       <div className="mb-12">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-400" />
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
             <span>Herramientas Profesionales</span>
           </h2>
-          <span className="text-xs text-gray-500">Selecciona una herramienta para comenzar</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">Selecciona una herramienta para comenzar</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -199,21 +199,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div
                 key={tool.id}
                 onClick={tool.action}
-                className="group relative p-5 rounded-2xl bg-magic-card border border-magic-border hover:border-indigo-500/40 hover:bg-magic-hover/80 transition-all duration-300 cursor-pointer shadow-md hover:shadow-xl hover:shadow-indigo-500/10 hover:-translate-y-0.5"
+                className="group relative p-5 rounded-2xl bg-white dark:bg-magic-card border border-gray-200 dark:border-magic-border hover:border-indigo-500/40 hover:bg-gray-50 dark:hover:bg-magic-hover/80 transition-all duration-300 cursor-pointer shadow-sm hover:shadow-xl hover:shadow-indigo-500/10 hover:-translate-y-0.5"
               >
                 <div className="flex items-start justify-between mb-3">
-                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-tr ${tool.color} flex items-center justify-center shadow-lg shadow-black/20 group-hover:scale-105 transition-transform`}>
+                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-tr ${tool.color} flex items-center justify-center shadow-lg shadow-black/10 group-hover:scale-105 transition-transform`}>
                     <Icon className="w-5 h-5 text-white" />
                   </div>
-                  <div className="w-7 h-7 rounded-lg bg-magic-border/40 group-hover:bg-indigo-500/20 flex items-center justify-center text-gray-400 group-hover:text-indigo-300 transition-colors">
+                  <div className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-magic-border/40 group-hover:bg-indigo-500/20 flex items-center justify-center text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
                     <ArrowRight className="w-3.5 h-3.5" />
                   </div>
                 </div>
 
-                <h3 className="text-sm font-bold text-white mb-1.5 group-hover:text-indigo-200 transition-colors">
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-1.5 group-hover:text-indigo-600 dark:group-hover:text-indigo-200 transition-colors">
                   {tool.title}
                 </h3>
-                <p className="text-xs text-gray-400 leading-relaxed">
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                   {tool.description}
                 </p>
               </div>
@@ -224,9 +224,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Open Documents List */}
       {documents.length > 0 && (
-        <div className="p-5 rounded-2xl bg-magic-card border border-magic-border">
-          <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-indigo-400" />
+        <div className="p-5 rounded-2xl bg-white dark:bg-magic-card border border-gray-200 dark:border-magic-border shadow-sm">
+          <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+            <FileText className="w-4 h-4 text-indigo-500" />
             <span>Documentos Abiertos ({documents.length})</span>
           </h3>
 
@@ -235,22 +235,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div
                 key={doc.id}
                 onClick={() => onSelectDoc(doc)}
-                className="flex items-center justify-between p-3 rounded-xl bg-magic-bg/70 hover:bg-magic-hover border border-magic-border/50 cursor-pointer transition-colors"
+                className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-magic-bg/70 hover:bg-gray-100 dark:hover:bg-magic-hover border border-gray-100 dark:border-magic-border/50 cursor-pointer transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                  <div className="w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-500">
                     <FileText className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-semibold text-white">{doc.name}</h4>
-                    <p className="text-[11px] text-gray-500">
+                    <h4 className="text-xs font-semibold text-gray-900 dark:text-white">{doc.name}</h4>
+                    <p className="text-[11px] text-gray-400">
                       {doc.pages} páginas • {formatSize(doc.size)}
                     </p>
                   </div>
                 </div>
 
                 <button className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors">
-                  Abrir en Editor
+                  Abrir Documento
                 </button>
               </div>
             ))}

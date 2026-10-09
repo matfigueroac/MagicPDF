@@ -328,3 +328,77 @@ export async function redactArea(pdfPath: string, pageNumber: number, rect: [num
   await runScript(steps);
   return pdfPath;
 }
+
+/**
+ * Compress PDF (Reduce File Size using doc_reduce)
+ */
+export async function compressPdf(pdfPath: string): Promise<string> {
+  const { tempDir } = getAppPaths();
+  const outPath = path.join(tempDir, `reduced_${Date.now()}_${path.basename(pdfPath)}`);
+
+  const steps = [
+    { tool: 'doc_open', args: { path: pdfPath } },
+    { tool: 'doc_reduce', args: { doc: 1, path: outPath } },
+    { tool: 'doc_close', args: { doc: 1 } }
+  ];
+
+  await runScript(steps);
+
+  if (fs.existsSync(outPath) && fs.statSync(outPath).size > 0) {
+    fs.copyFileSync(outPath, pdfPath);
+    try { fs.unlinkSync(outPath); } catch {}
+  }
+  return pdfPath;
+}
+
+/**
+ * Add Watermark to PDF
+ */
+export async function watermarkPdf(
+  pdfPath: string,
+  text: string,
+  options: { opacity?: number; color?: string; font_size?: number; rotation?: number } = {}
+): Promise<string> {
+  const steps = [
+    { tool: 'doc_open', args: { path: pdfPath } },
+    {
+      tool: 'doc_watermark',
+      args: {
+        doc: 1,
+        text,
+        opacity: options.opacity ?? 0.35,
+        color: options.color ?? '#D90429',
+        rotation: options.rotation ?? 45,
+        font_size: options.font_size ?? 48
+      }
+    },
+    { tool: 'doc_save', args: { doc: 1, path: pdfPath } },
+    { tool: 'doc_close', args: { doc: 1 } }
+  ];
+
+  await runScript(steps);
+  return pdfPath;
+}
+
+/**
+ * Export document text to plain text string
+ */
+export async function exportText(pdfPath: string): Promise<string> {
+  const { tempDir } = getAppPaths();
+  const outTxtPath = path.join(tempDir, `text_${Date.now()}.txt`);
+
+  const steps = [
+    { tool: 'doc_open', args: { path: pdfPath } },
+    { tool: 'doc_export_text', args: { doc: 1, path: outTxtPath } },
+    { tool: 'doc_close', args: { doc: 1 } }
+  ];
+
+  await runScript(steps);
+
+  if (fs.existsSync(outTxtPath)) {
+    const textContent = fs.readFileSync(outTxtPath, 'utf-8');
+    try { fs.unlinkSync(outTxtPath); } catch {}
+    return textContent;
+  }
+  return '';
+}
