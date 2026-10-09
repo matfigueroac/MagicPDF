@@ -1,10 +1,9 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const http = require('http');
 
 let mainWindow = null;
-let serverProcess = null;
 let initialPdfPath = null;
 
 // Find PDF file passed in arguments (when opened via Windows "Abrir con" or double-click)
@@ -37,31 +36,30 @@ if (!gotTheLock) {
   });
 }
 
-function startBackendServer() {
-  const http = require('http');
-  const req = http.get('http://127.0.0.1:3001/api/info/__health', (res) => {
-    // Server is already alive
-  });
+async function startBackendServer() {
+  const candidateServerPaths = [
+    path.join(__dirname, '..', 'dist-server', 'index.cjs'),
+    path.join(__dirname, 'dist-server', 'index.cjs'),
+    path.join(process.resourcesPath || '', 'app.asar', 'dist-server', 'index.cjs'),
+  ];
 
-  req.on('error', () => {
-    // Server is not running, spawn it
-    const serverScript = path.join(__dirname, '..', 'server', 'index.ts');
-    const tsxPath = path.join(__dirname, '..', 'node_modules', '.bin', 'tsx.cmd');
-    
-    serverProcess = spawn(tsxPath, [serverScript], {
-      cwd: path.join(__dirname, '..'),
-      env: { ...process.env, PORT: '3001' },
-      shell: true,
-      stdio: 'ignore'
-    });
-
-    serverProcess.on('error', (err) => {
-      console.error('Failed to start server:', err);
-    });
-  });
+  for (const sPath of candidateServerPaths) {
+    if (fs.existsSync(sPath)) {
+      try {
+        const sModule = require(sPath);
+        if (sModule && typeof sModule.startServer === 'function') {
+          await sModule.startServer(3001);
+          console.log('[Electron] In-process server started successfully on port 3001.');
+          return;
+        }
+      } catch (err) {
+        console.error('[Electron] Error running in-process server from', sPath, err);
+      }
+    }
+  }
 }
 
-function createWindow() {
+async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -70,6 +68,7 @@ function createWindow() {
     title: 'MagicPDF Pro',
     backgroundColor: '#0A0A0E',
     autoHideMenuBar: true,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -78,17 +77,42 @@ function createWindow() {
     }
   });
 
-  // Load app (dev server or built dist)
-  const isDev = !app.isPackaged;
-  const startUrl = isDev 
-    ? 'http://localhost:5174' 
-    : `file://${path.join(__dirname, '..', 'dist', 'index.html')}`;
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+    }
+  });
 
-  mainWindow.loadURL(startUrl);
+  // Check if Vite dev server (5174) is active, otherwise load from 3001 (Express static dist)
+  let startUrl = 'http://127.0.0.1:3001';
+  if (!app.isPackaged) {
+    const devServerUp = await new Promise((resolve) => {
+      const req = http.get('http://localhost:5174', (res) => resolve(res.statusCode < 500));
+      req.on('error', () => resolve(false));
+      req.setTimeout(400, () => { req.destroy(); resolve(false); });
+    });
+    if (devServerUp) {
+      startUrl = 'http://localhost:5174';
+    }
+  }
+
+  try {
+    await mainWindow.loadURL(startUrl);
+  } catch (err) {
+    console.warn('[Electron] Could not load URL, falling back to local file:', err.message);
+    const localFile = path.join(__dirname, '..', 'dist', 'index.html');
+    if (fs.existsSync(localFile) && mainWindow && !mainWindow.isDestroyed()) {
+      await mainWindow.loadFile(localFile);
+    }
+  }
 
   mainWindow.webContents.on('did-finish-load', () => {
     if (initialPdfPath) {
-      mainWindow.webContents.send('open-pdf-file', initialPdfPath);
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('open-pdf-file', initialPdfPath);
+        }
+      }, 500);
     }
   });
 
@@ -101,12 +125,9 @@ ipcMain.handle('get-initial-file', () => {
   return initialPdfPath;
 });
 
-app.whenReady().then(() => {
-  startBackendServer();
-  // Wait a moment for server to bind or connect directly
-  setTimeout(() => {
-    createWindow();
-  }, 1000);
+app.whenReady().then(async () => {
+  await startBackendServer();
+  await createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -116,9 +137,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (serverProcess) {
-    try { serverProcess.kill(); } catch {}
-  }
   if (process.platform !== 'darwin') {
     app.quit();
   }

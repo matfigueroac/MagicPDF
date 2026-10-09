@@ -3,7 +3,6 @@ import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import {
   getPdfInfo,
   renderPage,
@@ -15,14 +14,11 @@ import {
   splitPdf,
   reorganizePages,
   protectPdf,
-  redactArea
+  redactArea,
+  getAppPaths
 } from './pdfcraft.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const ROOT_DIR = path.resolve(__dirname, '..');
-const UPLOADS_DIR = path.resolve(ROOT_DIR, 'storage', 'uploads');
-const TEMP_DIR = path.resolve(ROOT_DIR, 'storage', 'temp');
+const { uploadsDir: UPLOADS_DIR, tempDir: TEMP_DIR } = getAppPaths();
 
 const app = express();
 const PORT = 3001;
@@ -31,6 +27,11 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use('/temp', express.static(TEMP_DIR));
+
+// Health check endpoint
+app.get('/api/info/__health', (_req, res) => {
+  res.json({ ok: true, status: 'ready', timestamp: Date.now() });
+});
 
 // Configure file uploads
 const storage = multer.diskStorage({
@@ -358,6 +359,56 @@ app.get('/api/download/:filename', (req, res) => {
   res.download(filePath, req.params.filename);
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 MagicPDF API Server running at http://localhost:${PORT}`);
-});
+// Serve static frontend in production if dist directory exists
+const candidateDists = [
+  path.join(__dirname, '..', 'dist'),
+  path.join(__dirname, 'dist'),
+  process.resourcesPath ? path.join(process.resourcesPath, 'app.asar', 'dist') : '',
+  path.join(process.cwd(), 'dist')
+].filter(Boolean);
+
+const distDir = candidateDists.find(d => fs.existsSync(d) && fs.existsSync(path.join(d, 'index.html')));
+
+if (distDir) {
+  console.log(`[Server] Serving frontend build from: ${distDir}`);
+  app.use(express.static(distDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/temp')) {
+      return next();
+    }
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
+let activeServer: any = null;
+
+export function startServer(port = 3001): Promise<number> {
+  return new Promise((resolve, reject) => {
+    if (activeServer) {
+      return resolve(port);
+    }
+    const server = app.listen(port, '127.0.0.1', () => {
+      console.log(`🚀 MagicPDF API Server running at http://127.0.0.1:${port}`);
+      activeServer = server;
+      resolve(port);
+    });
+
+    server.on('error', (err: any) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`[Server] Port ${port} is already active, reusing existing instance.`);
+        resolve(port);
+      } else {
+        console.error('[Server] Startup error:', err);
+        reject(err);
+      }
+    });
+  });
+}
+
+// Automatically start only if executed directly as entry script (not required or in Electron)
+if (!process.versions.electron && typeof process !== 'undefined') {
+  const isMain = process.argv[1] && (process.argv[1].includes('index.ts') || process.argv[1].includes('index.cjs'));
+  if (isMain) {
+    startServer(Number(process.env.PORT) || 3001).catch(console.error);
+  }
+}

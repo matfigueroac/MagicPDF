@@ -11,7 +11,8 @@
     "client": "vite",
     "server": "tsx watch server/index.ts",
     "app": "electron .",
-    "build": "tsc -b && vite build",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --outfile=dist-server/index.cjs --external:electron",
+    "build": "tsc -b && vite build && npm run build:server",
     "dist": "npm run build && electron-builder --win nsis",
     "dist:all": "npm run build && electron-builder --win nsis portable"
   },
@@ -23,11 +24,15 @@
     },
     "files": [
       "dist/**/*",
+      "dist-server/**/*",
       "electron/**/*",
-      "server/**/*",
-      "bin/**/*",
-      "storage/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin"
+      }
     ],
     "win": {
       "target": ["nsis", "portable"],
@@ -47,6 +52,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "MagicPDF Pro",
       "artifactName": "MagicPDF-Pro-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "MagicPDF-Pro-${version}-Portable.${ext}"
     }
   },
   "dependencies": {
