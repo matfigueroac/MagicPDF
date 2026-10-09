@@ -75,6 +75,38 @@ app.post('/api/upload', upload.array('files', 20), async (req, res) => {
 });
 
 /**
+ * 1b. Open a PDF directly from local disk path (for Windows file association)
+ */
+app.post('/api/open-file-path', async (req, res) => {
+  try {
+    const { targetPath } = req.body;
+    if (!targetPath || !fs.existsSync(targetPath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado' });
+    }
+
+    const filename = `${Date.now()}_${path.basename(targetPath).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const destPath = path.join(UPLOADS_DIR, filename);
+    fs.copyFileSync(targetPath, destPath);
+
+    const info = await getPdfInfo(destPath);
+    res.json({
+      success: true,
+      document: {
+        id: filename,
+        name: path.basename(targetPath),
+        filename,
+        path: destPath,
+        pages: info.pages,
+        size: fs.statSync(destPath).size
+      }
+    });
+  } catch (error: any) {
+    console.error('Error in /api/open-file-path:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * 2. Get Document info
  */
 app.get('/api/info/:filename', async (req, res) => {

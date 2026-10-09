@@ -16,6 +16,17 @@ export async function uploadFiles(files: File[]): Promise<PdfDocument[]> {
   return data.documents;
 }
 
+export async function openFilePath(targetPath: string): Promise<PdfDocument> {
+  const res = await fetch(`${API_BASE}/open-file-path`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetPath }),
+  });
+  if (!res.ok) throw new Error('Error al abrir archivo');
+  const data = await res.json();
+  return data.document;
+}
+
 export function getPageImageUrl(filename: string, page: number, dpi = 144): string {
   return `${API_BASE}/page-image/${encodeURIComponent(filename)}/${page}?dpi=${dpi}&t=${Date.now()}`;
 }

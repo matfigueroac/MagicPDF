@@ -5,7 +5,16 @@ import { EditorView } from './components/EditorView';
 import { OrganizeView } from './components/OrganizeView';
 import { ToolsView } from './components/ToolsView';
 import { PdfDocument, ViewMode, ToolType } from './types';
-import { uploadFiles } from './api/client';
+import { uploadFiles, openFilePath } from './api/client';
+
+declare global {
+  interface Window {
+    electronAPI?: {
+      onOpenPdf: (callback: (filePath: string) => void) => void;
+      getInitialFile: () => Promise<string | null>;
+    };
+  }
+}
 
 export const App: React.FC = () => {
   const [documents, setDocuments] = useState<PdfDocument[]>([]);
@@ -15,6 +24,40 @@ export const App: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (window.electronAPI) {
+      window.electronAPI.onOpenPdf(async (filePath) => {
+        try {
+          setIsUploading(true);
+          const doc = await openFilePath(filePath);
+          setDocuments(prev => [...prev, doc]);
+          setActiveDoc(doc);
+          setViewMode('editor');
+        } catch (err: any) {
+          console.error('Error opening file:', err);
+        } finally {
+          setIsUploading(false);
+        }
+      });
+
+      window.electronAPI.getInitialFile().then(async (filePath) => {
+        if (filePath) {
+          try {
+            setIsUploading(true);
+            const doc = await openFilePath(filePath);
+            setDocuments(prev => [...prev, doc]);
+            setActiveDoc(doc);
+            setViewMode('editor');
+          } catch (err: any) {
+            console.error('Error opening initial file:', err);
+          } finally {
+            setIsUploading(false);
+          }
+        }
+      });
+    }
+  }, []);
 
   const handleFilesSelected = async (files: File[]) => {
     try {

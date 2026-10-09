@@ -2,13 +2,43 @@
   "name": "magic-pdf",
   "private": true,
   "version": "1.0.0",
+  "description": "MagicPDF Pro Studio — The Modern PDF Workbench",
+  "author": "MagicPDF",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"npm run server\" \"npm run client\"",
     "client": "vite",
     "server": "tsx watch server/index.ts",
+    "app": "electron .",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "dist": "npm run build && electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.magicpdf.pro",
+    "productName": "MagicPDF Pro",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "bin/**/*",
+      "storage/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": ["portable"],
+      "fileAssociations": [
+        {
+          "ext": "pdf",
+          "name": "PDF Document",
+          "description": "MagicPDF Document",
+          "role": "Editor"
+        }
+      ]
+    }
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -31,10 +61,13 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.2",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.7.1",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "wait-on": "^9.0.4"
   }
 }
