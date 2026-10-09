@@ -12,7 +12,8 @@
     "server": "tsx watch server/index.ts",
     "app": "electron .",
     "build": "tsc -b && vite build",
-    "dist": "npm run build && electron-builder --win portable"
+    "dist": "npm run build && electron-builder --win nsis",
+    "dist:all": "npm run build && electron-builder --win nsis portable"
   },
   "build": {
     "appId": "com.magicpdf.pro",
@@ -29,7 +30,7 @@
       "package.json"
     ],
     "win": {
-      "target": ["portable"],
+      "target": ["nsis", "portable"],
       "fileAssociations": [
         {
           "ext": "pdf",
@@ -38,6 +39,14 @@
           "role": "Editor"
         }
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MagicPDF Pro",
+      "artifactName": "MagicPDF-Pro-Setup-${version}.${ext}"
     }
   },
   "dependencies": {
