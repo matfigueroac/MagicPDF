@@ -6,6 +6,8 @@ export interface PdfDocument {
   originalDiskPath?: string;
   pages: number;
   size: number;
+  revision?: number;
+  annotationRevision?:number;
 }
 
 export interface ParagraphInfo {

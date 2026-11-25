@@ -1,19 +1,6 @@
-import React, { useRef, useState } from 'react';
-import { 
-  UploadCloud, 
-  FileText, 
-  Layers, 
-  FilePlus2, 
-  Scissors, 
-  PenTool, 
-  Lock, 
-  Sparkles, 
-  ArrowRight,
-  ShieldCheck,
-  Zap,
-  CheckCircle2
-} from 'lucide-react';
-import { PdfDocument, ViewMode, ToolType } from '../types';
+import { useEffect, useState, type DragEvent } from "react";
+import { ArrowRight, FilePlus2, FileText, FolderOpen, Layers, Lock, PenTool, Scissors, ShieldCheck } from "lucide-react";
+import type { PdfDocument, ToolType, ViewMode } from "../types";
 
 interface DashboardViewProps {
   onFilesSelected: (files: File[]) => void;
@@ -21,244 +8,130 @@ interface DashboardViewProps {
   onSelectDoc: (doc: PdfDocument) => void;
   onNavigate: (mode: ViewMode, tool?: ToolType) => void;
   isUploading: boolean;
-  onOpenClick?: () => void;
+  onOpenClick: () => void;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({
-  onFilesSelected,
-  documents,
-  onSelectDoc,
-  onNavigate,
-  isUploading,
-  onOpenClick,
-}) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+const tools = [
+  { title: "Editar texto e imágenes", description: "Modifica el contenido de una página.", icon: FileText, view: "editor", color: "text-blue-600 dark:text-blue-300 bg-blue-500/10" },
+  { title: "Organizar páginas", description: "Reordena, gira o elimina páginas.", icon: Layers, view: "organize", color: "text-purple-700 dark:text-purple-300 bg-purple-500/10" },
+  { title: "Unir documentos", description: "Combina varios PDF en un archivo.", icon: FilePlus2, view: "tools", tool: "merge", color: "text-emerald-700 dark:text-emerald-300 bg-emerald-500/10" },
+  { title: "Dividir PDF", description: "Separa páginas en varios archivos.", icon: Scissors, view: "tools", tool: "split", color: "text-amber-700 dark:text-amber-300 bg-amber-500/10" },
+  { title: "Firmar documento", description: "Dibuja tu firma sobre una página.", icon: PenTool, view: "tools", tool: "sign", color: "text-rose-700 dark:text-rose-300 bg-rose-500/10" },
+  { title: "Proteger con contraseña", description: "Pide una contraseña para abrir el PDF.", icon: Lock, view: "tools", tool: "protect", color: "text-cyan-700 dark:text-cyan-300 bg-cyan-500/10" },
+] satisfies { title: string; description: string; icon: typeof FileText; view: ViewMode; tool?: ToolType; color: string }[];
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const pdfFiles = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.pdf'));
-      if (pdfFiles.length > 0) {
-        onFilesSelected(pdfFiles);
+export function DashboardView({ documents, onSelectDoc, onFilesSelected, onNavigate, isUploading, onOpenClick }: DashboardViewProps) {
+  const [dragging, setDragging] = useState(false);
+  const [copies, setCopies] = useState<{filename:string; name:string; size:number}[]>([]);
+  const [recoveryError, setRecoveryError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch('/api/workspace/recoveries', {signal:controller.signal});
+        if (!response.ok) throw new Error();
+        setCopies(await response.json());
+        setRecoveryError("");
+      } catch {
+        if (!controller.signal.aborted) setRecoveryError("No se pudieron consultar las copias recuperables.");
       }
-    }
-  };
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const pdfFiles = Array.from(e.target.files);
-      onFilesSelected(pdfFiles);
-    }
-  };
-
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const tools = [
-    {
-      id: 'edit',
-      title: 'Editar Texto e Imágenes',
-      description: 'Haz clic sobre cualquier párrafo para reescribir texto, cambiar fuente, tamaño y colores.',
-      icon: FileText,
-      color: 'from-blue-500 to-indigo-600',
-      action: () => onNavigate('editor'),
-    },
-    {
-      id: 'organize',
-      title: 'Organizar Páginas',
-      description: 'Reordena hojas como tarjetas visuales, rótalas 90°, elimínalas o extráelas.',
-      icon: Layers,
-      color: 'from-purple-500 to-pink-600',
-      action: () => onNavigate('organize'),
-    },
-    {
-      id: 'merge',
-      title: 'Unir Documentos (Merge)',
-      description: 'Combina varios PDFs en uno solo con un clic manteniendo bookmarks y enlaces.',
-      icon: FilePlus2,
-      color: 'from-emerald-500 to-teal-600',
-      action: () => onNavigate('tools', 'merge'),
-    },
-    {
-      id: 'split',
-      title: 'Dividir y Extraer (Split)',
-      description: 'Separa un documento por rangos de páginas o divídelo en archivos individuales.',
-      icon: Scissors,
-      color: 'from-amber-500 to-orange-600',
-      action: () => onNavigate('tools', 'split'),
-    },
-    {
-      id: 'sign',
-      title: 'Rellenar y Firmar',
-      description: 'Dibuja tu firma a mano alzada o escribe tu nombre para estamparlo en el documento.',
-      icon: PenTool,
-      color: 'from-rose-500 to-red-600',
-      action: () => onNavigate('tools', 'sign'),
-    },
-    {
-      id: 'protect',
-      title: 'Proteger con Contraseña',
-      description: 'Cifra tu PDF con algoritmo estándar AES-256 y restringe permisos de impresión.',
-      icon: Lock,
-      color: 'from-cyan-500 to-blue-600',
-      action: () => onNavigate('tools', 'protect'),
-    },
-  ];
+    })();
+    return () => controller.abort();
+  }, [documents.length]);
+  async function discard(filename: string, name: string) {
+    if (!window.confirm(`¿Descartar la copia recuperada de «${name}»? Si necesitas conservarla, descárgala primero.`)) return;
+    try {
+      const response = await fetch('/api/workspace/recoveries/' + encodeURIComponent(filename), {method:'DELETE'});
+      if (!response.ok) throw new Error();
+      setCopies(current => current.filter(copy => copy.filename !== filename));
+      setRecoveryError("");
+    } catch { setRecoveryError("No se pudo descartar la copia. Vuelve a intentarlo."); }
+  }
+  function drop(event: DragEvent) {
+    event.preventDefault();
+    setDragging(false);
+    if (!isUploading) onFilesSelected(Array.from(event.dataTransfer.files));
+  }
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 py-8 max-w-6xl mx-auto w-full select-none">
-      {/* Hero Header */}
-      <div className="flex flex-col items-center text-center mb-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-300 text-xs font-semibold mb-4 backdrop-blur-sm">
-          <Zap className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-          <span>Motor nativo ultra rápido • 100% privado y offline</span>
-        </div>
-
-        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-3 text-gray-900 dark:text-white">
-          Edita cualquier PDF como en{' '}
-          <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 dark:from-indigo-400 dark:via-purple-300 dark:to-pink-400 bg-clip-text text-transparent">
-            Adobe Pro
-          </span>
-        </h1>
-
-        <p className="text-gray-600 dark:text-gray-400 text-sm md:text-base max-w-2xl leading-relaxed">
-          Edita texto directamente sobre el PDF, organiza páginas con cuadrícula visual, une, divide, 
-          estampa firmas y protege tus documentos con máxima velocidad.
+    <section aria-labelledby="dashboard-heading" className="dashboard flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-5xl px-6 py-8 lg:py-10">
+        <h1 id="dashboard-heading" className="text-3xl font-bold tracking-tight text-gray-900 dark:text-white">Área de trabajo</h1>
+        <p className="mt-2 mb-5 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+          <ShieldCheck size={16} aria-hidden="true" /> Tus documentos se procesan en este equipo.
         </p>
-      </div>
-
-      {/* Dropzone */}
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={() => onOpenClick ? onOpenClick() : fileInputRef.current?.click()}
-        className={`relative group cursor-pointer rounded-2xl border-2 border-dashed p-10 flex flex-col items-center justify-center text-center transition-all duration-300 mb-12 ${
-          isDragging
-            ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 scale-[1.01] shadow-2xl shadow-indigo-500/20'
-            : 'border-gray-300 dark:border-magic-border hover:border-indigo-500 bg-white dark:bg-magic-card/60 hover:bg-gray-50 dark:hover:bg-magic-card shadow-lg hover:shadow-indigo-500/5'
-        }`}
-      >
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileInputChange}
-          accept="application/pdf"
-          multiple
-          className="hidden"
-        />
-
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center mb-4 shadow-xl shadow-indigo-500/30 group-hover:scale-110 transition-transform">
-          {isUploading ? (
-            <div className="w-8 h-8 border-3 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
-            <UploadCloud className="w-8 h-8 text-white" />
-          )}
+        <div
+          onDragOver={event => { event.preventDefault(); setDragging(true); }}
+          onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+          onDrop={drop}
+          className={`rounded-xl border-2 border-dashed ${dragging ? "border-indigo-500 bg-indigo-500/10" : "border-gray-300 dark:border-gray-600 bg-white dark:bg-magic-card"}`}
+        >
+          <button type="button" onClick={onOpenClick} disabled={isUploading} aria-busy={isUploading}
+            className="group flex w-full items-center gap-4 rounded-xl p-6 text-left transition-colors hover:bg-indigo-500/5 disabled:cursor-wait">
+            <span className="rounded-xl bg-indigo-600 p-3 text-white"><FolderOpen size={26} /></span>
+            <span className="flex-1">
+              <strong className="block text-xl">{isUploading ? "Abriendo PDF…" : "Abrir PDF"}</strong>
+              <span className="block mt-1 text-sm text-gray-600 dark:text-gray-300">Selecciona uno o más archivos o arrástralos aquí.</span>
+            </span>
+            <kbd className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs">Ctrl+O</kbd>
+          </button>
         </div>
 
-        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
-          {isUploading ? 'Procesando PDF...' : 'Arrastra y suelta tu archivo PDF aquí'}
-        </h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          o haz clic para seleccionar documentos desde tu equipo
-        </p>
-
-        <div className="flex items-center gap-4 text-[11px] text-gray-500 font-medium">
-          <span className="flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Sin límites de tamaño</span>
-          <span>•</span>
-          <span className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" /> Cero envío a la nube (100% local)</span>
-        </div>
-      </div>
-
-      {/* Quick Tools Grid */}
-      <div className="mb-12">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
-            <span>Herramientas Profesionales</span>
-          </h2>
-          <span className="text-xs text-gray-400 dark:text-gray-500">Selecciona una herramienta para comenzar</span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tools.map((tool) => {
-            const Icon = tool.icon;
-            return (
-              <div
-                key={tool.id}
-                onClick={tool.action}
-                className="group relative p-5 rounded-2xl bg-white dark:bg-magic-card border border-gray-200 dark:border-magic-border hover:border-indigo-500/40 hover:bg-gray-50 dark:hover:bg-magic-hover/80 transition-all duration-300 cursor-pointer shadow-sm hover:shadow-xl hover:shadow-indigo-500/10 hover:-translate-y-0.5"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-tr ${tool.color} flex items-center justify-center shadow-lg shadow-black/10 group-hover:scale-105 transition-transform`}>
-                    <Icon className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-magic-border/40 group-hover:bg-indigo-500/20 flex items-center justify-center text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-
-                <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-1.5 group-hover:text-indigo-600 dark:group-hover:text-indigo-200 transition-colors">
-                  {tool.title}
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {tool.description}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Open Documents List */}
-      {documents.length > 0 && (
-        <div className="p-5 rounded-2xl bg-white dark:bg-magic-card border border-gray-200 dark:border-magic-border shadow-sm">
-          <h3 className="text-sm font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-indigo-500" />
-            <span>Documentos Abiertos ({documents.length})</span>
-          </h3>
-
-          <div className="space-y-2">
-            {documents.map((doc) => (
-              <div
-                key={doc.id}
-                onClick={() => onSelectDoc(doc)}
-                className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-magic-bg/70 hover:bg-gray-100 dark:hover:bg-magic-hover border border-gray-100 dark:border-magic-border/50 cursor-pointer transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-500">
-                    <FileText className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-semibold text-gray-900 dark:text-white">{doc.name}</h4>
-                    <p className="text-[11px] text-gray-400">
-                      {doc.pages} páginas • {formatSize(doc.size)}
-                    </p>
-                  </div>
-                </div>
-
-                <button className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors">
-                  Abrir Documento
+        {recoveryError && <p role="alert" className="mt-4 text-sm">{recoveryError}</p>}
+        {copies.length > 0 && (
+          <section className="mt-7" aria-labelledby="recovery-heading">
+            <h2 id="recovery-heading" className="text-lg font-semibold">Copias recuperables</h2>
+            <p className="mb-2 text-sm">Ocupan {formatSize(copies.reduce((sum, copy) => sum + copy.size, 0))}. Puedes descargar cada PDF antes de liberar su espacio.</p>
+            <ul className="divide-y divide-gray-300 dark:divide-gray-600">
+              {copies.map(copy => <li key={copy.filename} className="flex items-center gap-4 py-2 text-sm">
+                <span className="min-w-0 flex-1 break-words">{copy.name} · {formatSize(copy.size)}</span>
+                <a className="underline" download={copy.name} href={'/api/workspace/recoveries/' + encodeURIComponent(copy.filename)}>Descargar</a>
+                <button type="button" onClick={() => void discard(copy.filename, copy.name)}>Descartar</button>
+              </li>)}
+            </ul>
+          </section>
+        )}
+        {documents.length > 0 && (
+          <section className="mt-7" aria-labelledby="open-heading">
+            <h2 id="open-heading" className="mb-3 text-lg font-semibold">Documentos abiertos ({documents.length})</h2>
+            <div className="grid gap-2 md:grid-cols-2">
+              {documents.map(doc => (
+                <button type="button" key={doc.id} onClick={() => onSelectDoc(doc)}
+                  className="flex min-w-0 items-center gap-3 rounded-lg border border-gray-200 dark:border-magic-border bg-white dark:bg-magic-card px-4 py-3 text-left hover:border-indigo-500">
+                  <FileText size={19} className="shrink-0 text-indigo-600 dark:text-indigo-300" />
+                  <span className="min-w-0 flex-1"><strong className="block truncate text-sm" title={doc.name}>{doc.name}</strong>
+                    <span className="text-xs text-gray-600 dark:text-gray-300">{doc.pages} {doc.pages === 1 ? "página" : "páginas"} · {formatSize(doc.size)}</span>
+                  </span>
+                  <ArrowRight size={15} />
                 </button>
-              </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="mt-8" aria-labelledby="tools-heading">
+          <h2 id="tools-heading" className="mb-3 text-lg font-semibold">Herramientas</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {tools.map(item => (
+              <button type="button" key={item.title} onClick={() => onNavigate(item.view, item.tool)} disabled={isUploading}
+                className="group rounded-xl border border-gray-200 dark:border-magic-border bg-white dark:bg-magic-card p-4 text-left hover:border-indigo-500 transition-colors">
+                <span className="flex items-center justify-between">
+                  <span className={`rounded-lg p-2 ${item.color}`}><item.icon size={19} /></span>
+                  <ArrowRight size={15} className="text-gray-500 dark:text-gray-400 group-hover:text-indigo-500" />
+                </span>
+                <strong className="block mt-3 text-sm">{item.title}</strong>
+                <span className="block mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-300">{item.description}</span>
+              </button>
             ))}
           </div>
-        </div>
-      )}
-    </div>
+        </section>
+      </div>
+    </section>
   );
-};
+}

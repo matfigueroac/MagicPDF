@@ -15,7 +15,7 @@ import { getPageImageUrl, organizePages } from '../api/client';
 
 interface OrganizeViewProps {
   document: PdfDocument;
-  onDocumentUpdated: () => void;
+  onDocumentUpdated: (pageCount: number) => void;
 }
 
 interface PageState {
@@ -89,10 +89,13 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
     })));
   };
 
+  const [notice, setNotice] = useState('');
+
   // Save changes via backend API
   const handleSaveChanges = async () => {
     try {
       setIsSaving(true);
+      setNotice('');
       const rotations: Array<{ page: number; by: number }> = [];
       const deletions: number[] = [];
 
@@ -109,21 +112,22 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
         return;
       }
 
-      await organizePages(document.filename, rotations, deletions);
-      alert('¡Documento reorganizado con éxito!');
-      onDocumentUpdated();
-    } catch (err: any) {
-      alert(`Error al organizar páginas: ${err.message}`);
+      const order = pages.filter(page => !page.isDeleted).map(page => page.originalPage);
+      const info = await organizePages(document.filename, rotations, deletions, order);
+      onDocumentUpdated(info.pages);
+    } catch {
+      setNotice('No se pudieron aplicar los cambios. Tu selección sigue disponible para reintentar.');
     } finally {
       setIsSaving(false);
     }
   };
 
   const activePageCount = pages.filter(p => !p.isDeleted).length;
-  const hasChanges = pages.some(p => p.rotation !== 0 || p.isDeleted);
+  const hasChanges = pages.some((p, index) => p.rotation !== 0 || p.isDeleted || p.originalPage !== index + 1);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden select-none bg-gray-50 dark:bg-magic-bg transition-colors">
+      {notice && <p role="alert" className="open-error">{notice}</p>}
       {/* Top Action Bar */}
       <div className="h-12 border-b border-gray-200 dark:border-magic-border bg-white dark:bg-magic-card px-4 flex items-center justify-between shrink-0 transition-colors">
         <div className="flex items-center gap-3">
@@ -137,6 +141,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
           <div className="h-4 w-px bg-gray-200 dark:bg-magic-border mx-1" />
 
           <button
+            disabled={isSaving}
             onClick={handleRotateAll}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-magic-bg hover:bg-gray-200 dark:hover:bg-magic-hover text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-magic-border transition-colors"
           >
@@ -146,6 +151,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
 
           {hasChanges && (
             <button
+              disabled={isSaving}
               onClick={handleReset}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-magic-bg hover:bg-gray-200 dark:hover:bg-magic-hover text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-magic-border transition-colors"
             >
@@ -158,7 +164,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
         {/* Save button */}
         <button
           onClick={handleSaveChanges}
-          disabled={isSaving || !hasChanges}
+          disabled={isSaving || !hasChanges || activePageCount === 0}
           className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:scale-[1.02]"
         >
           {isSaving ? (
@@ -169,7 +175,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
           ) : (
             <>
               <Check className="w-3.5 h-3.5" />
-              <span>Aplicar y Guardar Cambios</span>
+              <span>Aplicar cambios</span>
             </>
           )}
         </button>
@@ -181,7 +187,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
           {pages.map((p, index) => {
             return (
               <div
-                key={index}
+                key={p.originalPage}
                 className={`group relative rounded-2xl border transition-all duration-200 flex flex-col bg-white dark:bg-magic-card overflow-hidden shadow-sm hover:shadow-lg ${
                   p.isDeleted
                     ? 'opacity-30 border-rose-500/50 bg-rose-50 dark:bg-rose-950/10'
@@ -203,6 +209,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
                 {/* Thumbnail Preview with Rotation Transform */}
                 <div className="p-3 flex items-center justify-center bg-gray-100 dark:bg-gray-900/50 aspect-[3/4] overflow-hidden relative">
                   <img
+                    loading="lazy"
                     src={getPageImageUrl(document.filename, p.originalPage, 60)}
                     alt={`Página ${p.originalPage}`}
                     style={{ transform: `rotate(${p.rotation}deg)` }}
@@ -223,7 +230,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
                   {/* Rotate */}
                   <button
                     onClick={() => handleRotate(index)}
-                    disabled={p.isDeleted}
+                    disabled={isSaving || p.isDeleted}
                     title="Rotar 90°"
                     className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover disabled:opacity-30 transition-colors"
                   >
@@ -233,7 +240,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
                   {/* Move Left */}
                   <button
                     onClick={() => handleMoveLeft(index)}
-                    disabled={index === 0 || p.isDeleted}
+                    disabled={isSaving || index === 0 || p.isDeleted}
                     title="Mover a la izquierda"
                     className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover disabled:opacity-20 transition-colors"
                   >
@@ -243,7 +250,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
                   {/* Move Right */}
                   <button
                     onClick={() => handleMoveRight(index)}
-                    disabled={index === pages.length - 1 || p.isDeleted}
+                    disabled={isSaving || index === pages.length - 1 || p.isDeleted}
                     title="Mover a la derecha"
                     className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-magic-hover disabled:opacity-20 transition-colors"
                   >
@@ -252,6 +259,7 @@ export const OrganizeView: React.FC<OrganizeViewProps> = ({ document, onDocument
 
                   {/* Delete Toggle */}
                   <button
+                    disabled={isSaving || (!p.isDeleted && activePageCount === 1)}
                     onClick={() => handleToggleDelete(index)}
                     title={p.isDeleted ? 'Restaurar página' : 'Eliminar página'}
                     className={`p-1.5 rounded-lg transition-colors ${

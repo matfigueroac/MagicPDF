@@ -1,53 +1,100 @@
-import { PdfDocument, ParagraphInfo, LineInfo, ImageInfo } from '../types';
+import { PdfDocument, ParagraphInfo, LineInfo, ImageInfo } from "../types";
 
-const API_BASE = '/api';
+const API_BASE = "/api";
+const annotationWrites = new Map<string, Promise<any>>();
+export function writeAnnotation(
+  url: string,
+  data: { filename: string; [key: string]: unknown },
+) {
+  const pending = (annotationWrites.get(data.filename) || Promise.resolve())
+    .catch(() => {})
+    .then(async () => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (!res.ok)
+        throw new Error(result.error || "No se pudo guardar la anotación");
+      return result;
+    });
+  annotationWrites.set(data.filename, pending);
+  return pending;
+}
+export async function awaitAnnotationWrites(filename: string) {
+  await annotationWrites.get(filename);
+}
 
 export async function uploadFiles(files: File[]): Promise<PdfDocument[]> {
   const formData = new FormData();
   for (const f of files) {
-    formData.append('files', f);
+    formData.append("files", f);
   }
   const res = await fetch(`${API_BASE}/upload`, {
-    method: 'POST',
+    method: "POST",
     body: formData,
   });
-  if (!res.ok) throw new Error('Error al subir archivos');
+  if (!res.ok) throw new Error((await res.json()).error || "Error al subir archivos");
   const data = await res.json();
   return data.documents;
 }
 
 export async function openFilePath(targetPath: string): Promise<PdfDocument> {
   const res = await fetch(`${API_BASE}/open-file-path`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetPath }),
   });
-  if (!res.ok) throw new Error('Error al abrir archivo');
+  if (!res.ok) throw new Error((await res.json()).error || "Error al abrir archivo");
   const data = await res.json();
   return data.document;
 }
 
-export function getPageImageUrl(filename: string, page: number, dpi = 144): string {
-  return `${API_BASE}/page-image/${encodeURIComponent(filename)}/${page}?dpi=${dpi}&t=${Date.now()}`;
+const imageRevisions = new Map<string, number>();
+export function invalidatePageImages(filename: string) {
+  imageRevisions.set(filename, (imageRevisions.get(filename) || 0) + 1);
+}
+export function getPageImageUrl(
+  filename: string,
+  page: number,
+  dpi = 144,
+): string {
+  return `${API_BASE}/page-image/${encodeURIComponent(filename)}/${page}?dpi=${dpi}&v=${imageRevisions.get(filename) || 0}`;
 }
 
-export async function getParagraphs(filename: string, page: number): Promise<ParagraphInfo[]> {
-  const res = await fetch(`${API_BASE}/paragraphs/${encodeURIComponent(filename)}/${page}`);
-  if (!res.ok) throw new Error('Error al obtener párrafos');
+export async function getParagraphs(
+  filename: string,
+  page: number,
+): Promise<ParagraphInfo[]> {
+  const res = await fetch(
+    `${API_BASE}/paragraphs/${encodeURIComponent(filename)}/${page}`,
+  );
+  if (!res.ok) throw new Error("Error al obtener párrafos");
   const data = await res.json();
   return data.paragraphs;
 }
 
-export async function getPageLines(filename: string, page: number): Promise<LineInfo[]> {
-  const res = await fetch(`${API_BASE}/lines/${encodeURIComponent(filename)}/${page}`);
-  if (!res.ok) throw new Error('Error al obtener líneas de texto');
+export async function getPageLines(
+  filename: string,
+  page: number,
+): Promise<LineInfo[]> {
+  const res = await fetch(
+    `${API_BASE}/lines/${encodeURIComponent(filename)}/${page}`,
+  );
+  if (!res.ok) throw new Error("Error al obtener líneas de texto");
   const data = await res.json();
   return data.lines;
 }
 
-export async function getPageImages(filename: string, page: number): Promise<ImageInfo[]> {
-  const res = await fetch(`${API_BASE}/images/${encodeURIComponent(filename)}/${page}`);
-  if (!res.ok) throw new Error('Error al obtener imágenes');
+export async function getPageImages(
+  filename: string,
+  page: number,
+): Promise<ImageInfo[]> {
+  const res = await fetch(
+    `${API_BASE}/images/${encodeURIComponent(filename)}/${page}`,
+  );
+  if (!res.ok) throw new Error("Error al obtener imágenes");
   const data = await res.json();
   return data.images;
 }
@@ -56,15 +103,19 @@ export async function editImage(
   filename: string,
   page: number,
   image: number,
-  action: 'rotate' | 'delete' | 'replace' | 'flip_horizontal',
-  options: { newImagePath?: string; quarters?: number } = {}
+  action: "rotate" | "delete" | "replace" | "flip_horizontal" | "move",
+  options: {
+    newImagePath?: string;
+    quarters?: number;
+    rect?: [number, number, number, number];
+  } = {},
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/image-edit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, page, image, action, ...options }),
   });
-  if (!res.ok) throw new Error('Error al modificar imagen');
+  if (!res.ok) throw new Error("Error al modificar imagen");
 }
 
 export async function editText(
@@ -72,14 +123,20 @@ export async function editText(
   page: number,
   paragraph: number,
   text: string,
-  options: { font?: string; size?: number; color?: string; bold?: boolean; italic?: boolean } = {}
+  options: {
+    font?: string;
+    size?: number;
+    color?: string;
+    bold?: boolean;
+    italic?: boolean;
+  } = {},
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/edit-text`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, page, paragraph, text, ...options }),
   });
-  if (!res.ok) throw new Error('Error al actualizar texto');
+  if (!res.ok) throw new Error("Error al actualizar texto");
 }
 
 export async function addText(
@@ -87,56 +144,70 @@ export async function addText(
   page: number,
   text: string,
   at: [number, number],
-  options: { font?: string; size?: number; color?: string; bold?: boolean; italic?: boolean; width?: number } = {}
+  options: {
+    font?: string;
+    size?: number;
+    color?: string;
+    bold?: boolean;
+    italic?: boolean;
+    width?: number;
+  } = {},
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/add-text`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, page, text, at, ...options }),
   });
-  if (!res.ok) throw new Error('Error al añadir texto');
+  if (!res.ok) throw new Error("Error al añadir texto");
 }
 
 export async function organizePages(
   filename: string,
   rotations: Array<{ page: number; by: number }> = [],
-  deletions: number[] = []
+  deletions: number[] = [],
+  order?: number[],
 ): Promise<{ pages: number }> {
   const res = await fetch(`${API_BASE}/organize`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename, rotations, deletions }),
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, rotations, deletions, order }),
   });
-  if (!res.ok) throw new Error('Error al organizar páginas');
+  if (!res.ok) throw new Error("Error al organizar páginas");
   const data = await res.json();
   return data.info;
 }
 
-export async function combinePdfs(filenames: string[], outputName?: string): Promise<PdfDocument> {
+export async function combinePdfs(
+  filenames: string[],
+  outputName?: string,
+): Promise<PdfDocument> {
   const res = await fetch(`${API_BASE}/combine`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filenames, outputName }),
   });
-  if (!res.ok) throw new Error('Error al unir documentos');
+  if (!res.ok) throw new Error("Error al unir documentos");
   const data = await res.json();
   return {
     id: data.filename,
-    name: outputName || 'documento_unido.pdf',
+    name: outputName || "documento_unido.pdf",
     filename: data.filename,
     path: data.info.path,
     pages: data.info.pages,
-    size: data.info.size
+    size: data.info.size,
   };
 }
 
-export async function splitPdf(filename: string, every: number): Promise<string[]> {
+export async function splitPdf(
+  filename: string,
+  every: number,
+): Promise<string[]> {
   const res = await fetch(`${API_BASE}/split`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, every }),
   });
-  if (!res.ok) throw new Error('Error al dividir documento');
+  if (!res.ok) throw new Error("Error al dividir documento");
   const data = await res.json();
   return data.parts;
 }
@@ -147,78 +218,99 @@ export async function signDocument(
   signatureBase64: string,
   at: [number, number],
   width = 160,
-  height = 70
+  height = 70,
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/sign`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename, page, signatureBase64, at, width, height }),
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename,
+      page,
+      signatureBase64,
+      at,
+      width,
+      height,
+    }),
   });
-  if (!res.ok) throw new Error('Error al estampar firma');
+  if (!res.ok) throw new Error("Error al estampar firma");
 }
 
-export async function protectDocument(filename: string, password: string): Promise<void> {
+export async function protectDocument(
+  filename: string,
+  password: string,
+): Promise<void> {
   const res = await fetch(`${API_BASE}/protect`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, password }),
   });
-  if (!res.ok) throw new Error('Error al proteger documento');
+  if (!res.ok) throw new Error("Error al proteger documento");
 }
 
 export async function redactArea(
   filename: string,
   page: number,
-  rect: [number, number, number, number]
+  rect: [number, number, number, number],
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/redact`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, page, rect }),
   });
-  if (!res.ok) throw new Error('Error al censurar área');
+  if (!res.ok) throw new Error("Error al censurar área");
 }
 
-export async function compressDocument(filename: string): Promise<{ beforeSize: number; afterSize: number; reducedPercent: number }> {
+export async function compressDocument(
+  filename: string,
+): Promise<{ beforeSize: number; afterSize: number; reducedPercent: number }> {
   const res = await fetch(`${API_BASE}/compress`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename }),
   });
-  if (!res.ok) throw new Error('Error al comprimir documento');
+  if (!res.ok) throw new Error("Error al comprimir documento");
   return res.json();
 }
 
 export async function watermarkDocument(
   filename: string,
   text: string,
-  options: { opacity?: number; color?: string; rotation?: number; fontSize?: number } = {}
+  options: {
+    opacity?: number;
+    color?: string;
+    rotation?: number;
+    fontSize?: number;
+  } = {},
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/watermark`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, text, ...options }),
   });
-  if (!res.ok) throw new Error('Error al aplicar marca de agua');
+  if (!res.ok) throw new Error("Error al aplicar marca de agua");
 }
 
 export async function exportDocumentText(filename: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/export-text/${encodeURIComponent(filename)}`);
-  if (!res.ok) throw new Error('Error al exportar texto');
+  const res = await fetch(
+    `${API_BASE}/export-text/${encodeURIComponent(filename)}`,
+  );
+  if (!res.ok) throw new Error("Error al exportar texto");
   const data = await res.json();
   return data.text;
 }
 
-export async function saveToPath(filename: string, targetPath: string): Promise<void> {
+export async function saveToPath(
+  filename: string,
+  targetPath: string,
+): Promise<void> {
   const res = await fetch(`${API_BASE}/save-to-path`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, targetPath }),
   });
-  if (!res.ok) throw new Error('Error al guardar en el disco');
+  if (!res.ok) throw new Error((await res.json()).error || "Error al guardar en el disco");
 }
 
 export function getDownloadUrl(filename: string): string {
   return `${API_BASE}/download/${encodeURIComponent(filename)}`;
 }
-

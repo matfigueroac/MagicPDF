@@ -1,5 +1,6 @@
 import { execFile } from 'child_process';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import fs from 'fs';
 
 export function getAppPaths() {
@@ -85,7 +86,7 @@ export async function runScript(steps: Array<{ tool: string; args: Record<string
     execFile(cliPath, ['run', '--script', scriptPath], { maxBuffer: 1024 * 1024 * 50 }, (error, stdout, stderr) => {
       try { fs.unlinkSync(scriptPath); } catch {}
 
-      if (error && !stdout) {
+      if (error) {
         return reject(new Error(stderr || error.message));
       }
 
@@ -113,10 +114,11 @@ export async function getPdfInfo(pdfPath: string): Promise<DocInfo> {
   ];
   const results = await runScript(steps);
   const docData = results[0];
+  if (!Number.isInteger(docData?.pages) || docData.pages < 1) throw new Error('No se pudo leer el PDF');
 
   return {
     doc: docData.doc,
-    pages: docData.pages || 1,
+    pages: docData.pages,
     name: path.basename(pdfPath),
     path: pdfPath,
     size: stats.size
@@ -126,13 +128,40 @@ export async function getPdfInfo(pdfPath: string): Promise<DocInfo> {
 /**
  * Render a page to PNG image
  */
+const renderCache = new Map<string, Promise<string>>();
+let rendering = 0;
+const renderWaiters: Array<() => void> = [];
+export function getRenderStatus() { return {active:rendering,queued:renderWaiters.length}; }
 export async function renderPage(pdfPath: string, pageNumber: number, dpi = 120): Promise<string> {
+  if (!Number.isInteger(pageNumber) || pageNumber < 1 || !Number.isInteger(dpi) || dpi < 36 || dpi > 300) throw new Error('Página o resolución inválida');
+  const stamp = await fs.promises.stat(pdfPath);
+  const key = `${pdfPath}:${stamp.mtimeMs}:${stamp.size}:${pageNumber}:${dpi}`;
+  const cached = renderCache.get(key);
+  if (cached) return cached;
+  const pending = (async () => {
+    if (rendering >= 2) await new Promise<void>(resolve => renderWaiters.push(resolve));
+    else rendering++;
+    try { return await renderPageUncached(pdfPath, pageNumber, dpi); }
+    finally { const next = renderWaiters.shift(); if (next) next(); else rendering--; }
+  })();
+  renderCache.set(key, pending);
+  pending.catch(() => renderCache.delete(key));
+  if (renderCache.size > 96) {
+    const oldest = renderCache.keys().next().value!;
+    const previous = renderCache.get(oldest)!;
+    renderCache.delete(oldest);
+    // Only files created by this process; never sweep historical user storage.
+    void previous.then(file => { setTimeout(() => { void fs.promises.unlink(file).catch(() => {}); }, 60000).unref(); }).catch(() => {});
+  }
+  return pending;
+}
+async function renderPageUncached(pdfPath: string, pageNumber: number, dpi = 120): Promise<string> {
   const { cliPath, tempDir } = getAppPaths();
   const outName = `render_${path.basename(pdfPath, '.pdf')}_p${pageNumber}_${Date.now()}.png`;
   const outPath = path.join(tempDir, outName);
 
   return new Promise((resolve, reject) => {
-    execFile(cliPath, ['render', pdfPath, '--page', pageNumber.toString(), '--dpi', dpi.toString(), '--out', outPath], (err, _stdout, stderr) => {
+    execFile(cliPath, ['render', pdfPath, '--page', pageNumber.toString(), '--dpi', dpi.toString(), '--out', outPath], { timeout: 60000 }, (err, _stdout, stderr) => {
       if (err) {
         return reject(new Error(stderr || err.message));
       }
@@ -180,7 +209,7 @@ export async function getPageImages(pdfPath: string, pageNumber: number): Promis
   ];
   const results = await runScript(steps);
   const imgResult = results.find(r => r.images !== undefined);
-  return imgResult?.images || [];
+  return (imgResult?.images || []).map((image: any) => ({...image, box: image.box || image.rect}));
 }
 
 /**
@@ -343,27 +372,47 @@ export async function reorganizePages(
   operations: {
     rotations?: Array<{ page: number; by: number }>;
     deletions?: number[];
+    order?: number[];
   }
 ): Promise<string> {
-  const steps: any[] = [{ tool: 'doc_open', args: { path: pdfPath } }];
-
-  if (operations.rotations && operations.rotations.length > 0) {
-    for (const r of operations.rotations) {
-      steps.push({ tool: 'page_rotate', args: { doc: 1, page: r.page, by: r.by } });
+  const { pages } = await getPdfInfo(pdfPath);
+  const { rotations = [], deletions = [], order } = operations;
+  const validPage = (page: number) => Number.isInteger(page) && page >= 1 && page <= pages;
+  const deleted = new Set(deletions);
+  if (deleted.size >= pages || deleted.size !== deletions.length || !deletions.every(validPage)) {
+    throw new Error('Selección de páginas inválida');
+  }
+  const steps: Array<{ tool: string; args: Record<string, unknown> }> = [
+    { tool: 'doc_open', args: { path: pdfPath } },
+  ];
+  for (const { page, by } of rotations) {
+    if (!validPage(page) || ![90, 180, 270, -90].includes(by)) throw new Error('Rotación inválida');
+    steps.push({ tool: 'page_rotate', args: { doc: 1, pages: [page], degrees: by } });
+  }
+  if (deletions.length) steps.push({ tool: 'page_delete', args: { doc: 1, pages: deletions } });
+  if (order !== undefined) {
+    const current = Array.from({ length: pages }, (_, i) => i + 1).filter(page => !deleted.has(page));
+    if (!Array.isArray(order) || order.length !== current.length || new Set(order).size !== order.length ||
+        !order.every(page => validPage(page) && !deleted.has(page))) throw new Error('Orden de páginas inválido');
+    // Fija el prefijo de izquierda a derecha. Cada movimiento usa las posiciones vigentes.
+    for (const [index, original] of order.entries()) {
+      if (current[index] === original) continue;
+      const from = current.indexOf(original, index + 1);
+      steps.push({ tool: 'page_move', args: { doc: 1, pages: [from + 1], to: index + 1 } });
+      current.splice(from, 1);
+      current.splice(index, 0, original);
     }
   }
-
-  if (operations.deletions && operations.deletions.length > 0) {
-    const sortedDesc = [...operations.deletions].sort((a, b) => b - a);
-    for (const page of sortedDesc) {
-      steps.push({ tool: 'page_delete', args: { doc: 1, page } });
-    }
+  const output = path.join(path.dirname(pdfPath), `${randomUUID()}.pdf`);
+  try {
+    steps.push({ tool: 'doc_save', args: { doc: 1, path: output } }, { tool: 'doc_close', args: { doc: 1 } });
+    const results = await runScript(steps);
+    if (results.some(result => result.error)) throw new Error('No se pudieron aplicar los cambios');
+    if ((await getPdfInfo(output)).pages !== pages - deleted.size) throw new Error('Resultado de organización inválido');
+    await fs.promises.rename(output, pdfPath);
+  } finally {
+    await fs.promises.rm(output, { force: true });
   }
-
-  steps.push({ tool: 'doc_save', args: { doc: 1, path: pdfPath } });
-  steps.push({ tool: 'doc_close', args: { doc: 1 } });
-
-  await runScript(steps);
   return pdfPath;
 }
 

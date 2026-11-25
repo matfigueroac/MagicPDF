@@ -1,0 +1,59 @@
+name: Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: Firmar el instalador y preparar los archivos de actualización
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build
+      - run: node --test tests/windows-updates.cjs
+      - run: node tests/workspace-durability.cjs
+      - run: npm test
+
+  package:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: windows-2025
+    environment: ${{ inputs.signed && 'windows-release' || 'windows-preview' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run build
+      - if: ${{ !inputs.signed }}
+        run: node scripts/build-windows-release.cjs
+      - if: inputs.signed
+        run: node scripts/build-windows-release.cjs --signed
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          MAGICPDF_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: MagicPDF-Windows-x64-${{ inputs.signed && 'signed' || 'preview' }}
+          path: |
+            release/MagicPDF-Pro-Setup-*.exe
+            release/MagicPDF-Pro-Setup-*.exe.blockmap
+            release/latest.yml
+            release/SHA256SUMS.txt
+          if-no-files-found: error

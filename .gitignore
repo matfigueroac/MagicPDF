@@ -8,17 +8,26 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+*.tsbuildinfo
 dist
 dist-ssr
 dist-server
+dist-ocr/
 release/
+work/
 *.local
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
 
 # Storage
 storage/temp/*
 !storage/temp/.gitkeep
 storage/uploads/*
 !storage/uploads/.gitkeep
+storage/work-copy-records/
 
 # Editor
 .vscode/*

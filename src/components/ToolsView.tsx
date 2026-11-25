@@ -40,6 +40,7 @@ export const ToolsView: React.FC<ToolsViewProps> = ({
   onDocumentUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<ToolType>(initialTool);
+  useEffect(() => { setActiveTab(initialTool); }, [initialTool]);
   const [isLoading, setIsLoading] = useState(false);
 
   // Merge state

@@ -2,10 +2,20 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
+import { WorkCopies } from './work-copies.js';
+const { savePdf, cleanSaveStages } = require('../electron/atomic-save.cjs');
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import fs from 'fs';
+import { addHighlight } from './annotations.js';
+import {writeDrawing,writeDrawings,setDrawingLock,orderDrawings,setLayerProperties,readerScene} from './drawings.js';
+import { transactionMiddleware, historyStatus, restoreHistory, withDocumentLock } from './history.js';
+import { readForms, writeForms, addTextBox } from './pro.js';
+import { recognizePdf } from './ocr.js';
 import {
   getPdfInfo,
   renderPage,
+  getRenderStatus,
   getPageParagraphs,
   editParagraph,
   addTextToPage,
@@ -25,36 +35,99 @@ import {
 } from './pdfcraft.js';
 
 const { uploadsDir: UPLOADS_DIR, tempDir: TEMP_DIR } = getAppPaths();
+const copies = new WorkCopies(UPLOADS_DIR);
 
 const app = express();
-const PORT = 3001;
+const localOrigins: string[] = process.versions.electron && !process.defaultApp
+  ? [] : ['http://localhost:5174', 'http://127.0.0.1:5174'];
 
-app.use(cors());
+app.use(cors({ origin: localOrigins }));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !localOrigins.includes(origin)) return res.status(403).json({error:'Origen no permitido'});
+  next();
+});
 app.use(express.json({ limit: '50mb' }));
+app.use(transactionMiddleware(UPLOADS_DIR));
+app.get('/api/scene/:filename',async(req,res)=>{try{res.json({annotations:(await readerScene(safeFile(req.params.filename))).annotations});}catch(e:any){res.status(400).json({error:e.message});}});
+app.get('/api/reader-file/:filename',async(req,res)=>{try{const file=safeFile(req.params.filename),scene=await readerScene(file);if(scene.bytes)res.type('pdf').send(Buffer.from(scene.bytes));else res.sendFile(file);}catch(e:any){res.status(400).json({error:e.message});}});
+app.post('/api/drawing',async(req,res)=>{try{const annotation=await writeDrawing(safeFile(req.body.filename),req.body.annotation,req.body.remove===true,req.body.fitText===true);res.json({success:true,annotation});}catch(e:any){res.status(400).json({error:e.message});}});
+app.post('/api/drawing-batch',async(req,res)=>{try{const annotations=await writeDrawings(safeFile(req.body.filename),req.body.annotations,req.body.remove===true);res.json({success:true,annotations});}catch(e:any){res.status(400).json({error:e.message});}});
+app.post('/api/annotation-lock',async(req,res)=>{try{const annotations=await setDrawingLock(safeFile(req.body.filename),req.body.ids,req.body.locked);res.json({success:true,annotations});}catch(e:any){res.status(400).json({error:e.message});}});
+app.post('/api/annotation-order',async(req,res)=>{try{res.json({success:true,...await orderDrawings(safeFile(req.body.filename),req.body.ids,req.body.action)});}catch(e:any){res.status(400).json({error:e.message});}});
+app.post('/api/annotation-layer',async(req,res)=>{try{res.json({success:true,...await setLayerProperties(safeFile(req.body.filename),req.body.scope,req.body.id,req.body.patch)});}catch(e:any){res.status(400).json({error:e.message});}});
+function safeFile(name: unknown) {if(typeof name!=='string'||path.basename(name)!==name||/[\\/]/.test(name))throw new Error('Archivo inválido');return path.join(UPLOADS_DIR,name);}
+app.get('/api/history/:filename',(req,res)=>res.json(historyStatus(req.params.filename)));
+app.post('/api/history/:direction',async(req,res)=>{
+  try {if(!['undo','redo'].includes(req.params.direction))throw new Error('Acción inválida');await restoreHistory(UPLOADS_DIR,req.body.filename,req.params.direction as 'undo'|'redo');const info=await getPdfInfo(safeFile(req.body.filename));res.json({success:true,info,...historyStatus(req.body.filename)});}
+  catch(e:any){res.status(400).json({error:e.message});}
+});
+app.get('/api/forms/:filename',async(req,res)=>{try{res.json({fields:await readForms(safeFile(req.params.filename))});}catch(e:any){res.status(400).json({error:e.message});}});
+app.post('/api/forms',async(req,res)=>{try{await writeForms(safeFile(req.body.filename),req.body.values);res.json({success:true});}catch(e:any){res.status(400).json({error:e.message});}});
+app.post('/api/layout',async(req,res)=>{try{await addTextBox(safeFile(req.body.filename),req.body);res.json({success:true});}catch(e:any){res.status(400).json({error:e.message});}});
+const ocrProgress=new Map<string,string>();
+app.get('/api/ocr-status/:filename',(req,res)=>res.json({message:ocrProgress.get(req.params.filename)||''}));
+app.post('/api/ocr',async(req,res)=>{
+  const {filename,pages,language}=req.body;
+  try{const results=await recognizePdf(safeFile(filename),pages,language,message=>ocrProgress.set(filename,message));res.json({success:true,results});}
+  catch(e:any){res.status(400).json({error:e.message});}
+  finally{ocrProgress.delete(filename);}
+});
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use('/temp', express.static(TEMP_DIR));
+const annotationWrites = new Set<string>();
+app.post('/api/highlight', async (req, res) => {
+  const {filename, page, rects, color, text, kind} = req.body;
+  if (typeof filename !== 'string' || path.basename(filename) !== filename || /[\\/]/.test(filename)) return res.status(400).json({error:'Archivo inválido'});
+  if (!Array.isArray(rects) || rects.some(r => !Array.isArray(r)) || typeof color !== 'string' || typeof text !== 'string') return res.status(400).json({error:'Selección inválida'});
+  if (annotationWrites.has(filename)) return res.status(409).json({error:'Espera a que termine el guardado actual'});
+  annotationWrites.add(filename);
+  try { const annotation=await addHighlight(path.join(UPLOADS_DIR,filename),page,rects,color,text,kind); res.json({success:true,annotation}); }
+  catch(error: any) { res.status(400).json({error:error.message}); }
+  finally { annotationWrites.delete(filename); }
+});
 
 // Health check endpoint
 app.get('/api/info/__health', (_req, res) => {
-  res.json({ ok: true, status: 'ready', timestamp: Date.now() });
+  res.json({ ok: true, status: 'ready', timestamp: Date.now(), renders:getRenderStatus() });
 });
 
 // Configure file uploads
-const storage = multer.diskStorage({
+async function discardFailedCopy(file: string, keepFile = false) {
+  try {
+    await copies.abort(path.basename(file), keepFile);
+  } catch (error) {
+    console.warn('No se pudo limpiar la copia de apertura', error);
+  }
+}
+
+const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, UPLOADS_DIR);
   },
   filename: (_req, file, cb) => {
-    const cleanName = `${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    cb(null, cleanName);
+    copies.begin(file.originalname).then(name => cb(null, name), error => cb(error, ''));
   }
 });
-const upload = multer({ storage });
+const storage: multer.StorageEngine = {
+  _handleFile: diskStorage._handleFile.bind(diskStorage),
+  _removeFile(req, file, done) {
+    const filename = file.filename || path.basename(file.path);
+    diskStorage._removeFile(req, file, error => {
+      if (error && (error as NodeJS.ErrnoException).code !== 'ENOENT') return done(error);
+      copies.abort(filename, true).then(() => done(null), done);
+    });
+  },
+};
+const upload = multer({ storage, defParamCharset: 'utf8' }).array('files', 20);
 
 /**
  * 1. Upload one or more PDFs
  */
-app.post('/api/upload', upload.array('files', 20), async (req, res) => {
+app.post('/api/upload', (req, res, next) => upload(req, res, error => {
+  if (error) return res.status(400).json({error:error.message});
+  next();
+}), async (req, res) => {
   try {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
@@ -64,6 +137,7 @@ app.post('/api/upload', upload.array('files', 20), async (req, res) => {
     const docs = [];
     for (const f of files) {
       const info = await getPdfInfo(f.path);
+      await copies.ready(f.filename);
       docs.push({
         id: path.basename(f.path),
         name: f.originalname,
@@ -76,6 +150,7 @@ app.post('/api/upload', upload.array('files', 20), async (req, res) => {
 
     res.json({ success: true, documents: docs });
   } catch (error: any) {
+    await Promise.all((req.files as Express.Multer.File[] || []).map(file => discardFailedCopy(file.path)));
     console.error('Error in /api/upload:', error);
     res.status(500).json({ error: error.message });
   }
@@ -85,17 +160,20 @@ app.post('/api/upload', upload.array('files', 20), async (req, res) => {
  * 1b. Open a PDF directly from local disk path (for Windows file association)
  */
 app.post('/api/open-file-path', async (req, res) => {
+  let failedCopy: string | undefined;
   try {
     const { targetPath } = req.body;
     if (!targetPath || !fs.existsSync(targetPath)) {
       return res.status(404).json({ error: 'Archivo no encontrado' });
     }
 
-    const filename = `${Date.now()}_${path.basename(targetPath).replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const filename = await copies.begin(path.basename(targetPath), path.resolve(targetPath));
     const destPath = path.join(UPLOADS_DIR, filename);
-    fs.copyFileSync(targetPath, destPath);
+    failedCopy = destPath;
+    await fs.promises.copyFile(targetPath, destPath, fs.constants.COPYFILE_EXCL);
 
     const info = await getPdfInfo(destPath);
+    await copies.ready(filename);
     res.json({
       success: true,
       document: {
@@ -109,6 +187,7 @@ app.post('/api/open-file-path', async (req, res) => {
       }
     });
   } catch (error: any) {
+    if (failedCopy) await discardFailedCopy(failedCopy, error.code === 'EEXIST');
     console.error('Error in /api/open-file-path:', error);
     res.status(500).json({ error: error.message });
   }
@@ -274,14 +353,14 @@ app.post('/api/add-text', async (req, res) => {
  */
 app.post('/api/organize', async (req, res) => {
   try {
-    const { filename, rotations, deletions } = req.body;
-    const filePath = path.join(UPLOADS_DIR, filename);
+    const { filename, rotations, deletions, order } = req.body;
+    const filePath = safeFile(filename);
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Archivo no encontrado' });
     }
 
-    await reorganizePages(filePath, { rotations, deletions });
+    await reorganizePages(filePath, { rotations, deletions, order });
     const updatedInfo = await getPdfInfo(filePath);
 
     res.json({ success: true, message: 'Páginas organizadas', info: updatedInfo });
@@ -496,19 +575,42 @@ app.get('/api/export-text/:filename', async (req, res) => {
 app.post('/api/save-to-path', async (req, res) => {
   try {
     const { filename, targetPath } = req.body;
-    const filePath = path.join(UPLOADS_DIR, filename);
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Archivo origen no encontrado' });
-    }
+    const filePath = safeFile(filename);
     if (!targetPath) {
       return res.status(400).json({ error: 'Ruta de destino requerida' });
     }
-    fs.copyFileSync(filePath, targetPath);
+    await withDocumentLock(filename, () => savePdf(filePath, targetPath, UPLOADS_DIR));
     res.json({ success: true, message: `Guardado en ${targetPath}`, path: targetPath });
   } catch (error: any) {
     console.error('Error in /api/save-to-path:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+app.get('/api/workspace/recoveries', async (_req, res) => {
+  try { res.json(await copies.recoveries()); }
+  catch { res.status(500).json({error:'No se pudieron leer las copias recuperables.'}); }
+});
+app.get('/api/workspace/recoveries/:filename', (req, res) => {
+  const entry = copies.recovery(req.params.filename);
+  if (!entry) return res.sendStatus(404);
+  res.download(safeFile(entry.filename), entry.name);
+});
+app.delete('/api/workspace/recoveries/:filename', async (req, res) => {
+  try { await withDocumentLock(req.params.filename, () => copies.discard(req.params.filename)); res.sendStatus(204); }
+  catch (error: any) { res.status(400).json({error:error.message}); }
+});
+app.post('/api/workspace/release', async (req, res) => {
+  try {
+    const { filename, approvedVersion } = req.body;
+    await withDocumentLock(filename, () => copies.release(filename, approvedVersion));
+    res.sendStatus(204);
+  } catch (error: any) { res.status(500).json({error:error.message}); }
+});
+app.post('/api/workspace/detach', (req, res) => {
+  if (!Array.isArray(req.body.filenames)) return res.sendStatus(400);
+  for (const filename of req.body.filenames) copies.detach(filename);
+  res.sendStatus(204);
 });
 
 // Serve static frontend in production if dist directory exists
@@ -532,29 +634,24 @@ if (distDir) {
   });
 }
 
-let activeServer: any = null;
+let starting: Promise<number> | undefined;
 
 export function startServer(port = 3001): Promise<number> {
-  return new Promise((resolve, reject) => {
-    if (activeServer) {
-      return resolve(port);
-    }
-    const server = app.listen(port, '127.0.0.1', () => {
-      console.log(`🚀 MagicPDF API Server running at http://127.0.0.1:${port}`);
-      activeServer = server;
-      resolve(port);
+  if (starting) return starting;
+  starting = Promise.all([copies.start(), cleanSaveStages(UPLOADS_DIR)]).then(() => new Promise<number>((resolve, reject) => {
+    const server: Server = app.listen(port, '127.0.0.1', () => {
+      const actualPort = (server.address() as AddressInfo).port;
+      const origin = `http://127.0.0.1:${actualPort}`;
+      localOrigins.push(origin);
+      console.log(`MagicPDF API disponible en ${origin}`);
+      resolve(actualPort);
     });
-
-    server.on('error', (err: any) => {
-      if (err.code === 'EADDRINUSE') {
-        console.log(`[Server] Port ${port} is already active, reusing existing instance.`);
-        resolve(port);
-      } else {
-        console.error('[Server] Startup error:', err);
-        reject(err);
-      }
-    });
+    server.once('error', reject);
+  })).catch(error => {
+    starting = undefined;
+    throw error;
   });
+  return starting;
 }
 
 // Automatically start only if executed directly as entry script (not required or in Electron)
