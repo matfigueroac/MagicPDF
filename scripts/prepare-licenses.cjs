@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { inflateSync } = require('node:zlib');
 const { packages } = require('../package-lock.json');
 
 const root = path.resolve(__dirname, '..');
@@ -51,6 +52,20 @@ for (const location of [...locations].sort()) {
     const readme = fs.readFileSync(path.join(directory, 'Readme.md'), 'utf8');
     const license = /^## License\s*\r?\n([\s\S]+)$/m.exec(readme)?.[1];
     if (license) notices.push(`Readme.md\n${license.trim()}`);
+  }
+  if (identifier === '@pdf-lib/standard-fonts@1.0.0') {
+    const readme = fs.readFileSync(path.join(directory, 'README.md'), 'utf8');
+    const originalLicense = /^## Original Repo's License\s*\r?\n([\s\S]+)$/m.exec(readme)?.[1];
+    if (!originalLicense) throw new Error(`Falta la atribución de afm en ${identifier}.`);
+    notices.push(`Readme.md (afm)\n${originalLicense.trim()}`);
+
+    const metrics = path.join(directory, 'lib');
+    const fonts = fs.readdirSync(metrics).filter(file => /^[A-Z].*\.compressed\.json$/.test(file)).sort();
+    notices.push(['Avisos de los datos de métricas tipográficas', ...fonts.map(file => {
+      const encoded = JSON.parse(fs.readFileSync(path.join(metrics, file), 'utf8'));
+      const font = JSON.parse(inflateSync(Buffer.from(encoded, 'base64')).toString('utf8'));
+      return `${font.FontName}: ${font.Notice}`;
+    })].join('\n'));
   }
   for (const file of supplementalNotices[identifier] ?? []) {
     notices.push(`${file}\n${fs.readFileSync(path.join(root, 'docs/licencias-npm', file), 'utf8').trimEnd()}`);

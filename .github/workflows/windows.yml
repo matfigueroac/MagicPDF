@@ -48,6 +48,12 @@ jobs:
           CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
           MAGICPDF_WINDOWS_PUBLISHER: ${{ vars.WINDOWS_PUBLISHER }}
+      - name: Verificar los avisos del instalador
+        shell: pwsh
+        run: |
+          $original = Get-FileHash dist-licenses/Licencias-de-terceros.txt
+          $empaquetado = Get-FileHash release/win-unpacked/resources/Licencias-de-terceros.txt
+          if ($original.Hash -ne $empaquetado.Hash) { throw "Los avisos del paquete no coinciden con los generados." }
       - uses: actions/upload-artifact@v6
         with:
           name: MagicPDF-Windows-x64-${{ inputs.signed && 'signed' || 'preview' }}
