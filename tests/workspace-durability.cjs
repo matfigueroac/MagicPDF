@@ -134,6 +134,8 @@ async function run() {
     await io.mkdir(path.join(directory, 'dist-server'));
     await io.copyFile(path.join(root, 'dist-server/index.cjs'), path.join(directory, 'dist-server/index.cjs'));
     await io.cp(path.join(root, 'dist'), path.join(directory, 'dist'), {recursive:true});
+    await io.mkdir(path.join(directory, 'bin'));
+    await io.copyFile(path.join(root, 'bin/pdfcraft-cli.exe'), path.join(directory, 'bin/pdfcraft-cli.exe'));
     const server = await start();
     const open = async (url, targetPath) => (await post(url, 'open-file-path', {targetPath})).document;
     const clean = await open(server.url, original);

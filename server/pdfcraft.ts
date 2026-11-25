@@ -13,7 +13,6 @@ export function getAppPaths() {
     path.join(__dirname, 'bin', 'pdfcraft-cli.exe'),
     path.join(process.cwd(), 'resources', 'bin', 'pdfcraft-cli.exe'),
     path.join(process.cwd(), 'bin', 'pdfcraft-cli.exe'),
-    'C:\\Dev\\Experiments\\MagicPDF\\bin\\pdfcraft-cli.exe'
   ].filter(Boolean);
 
   let cliPath = candidates.find(c => fs.existsSync(c)) || candidates[0];

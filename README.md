@@ -8,7 +8,11 @@ Lee, anota y organiza PDF en Windows. Puedes convertir un escaneo en texto selec
 
 ## Instalar en Windows
 
-La edición para Windows x64 está en preparación para Microsoft Store. Cuando esté publicada, la tienda gestionará la instalación y las actualizaciones. El instalador independiente con firma de producción también está pendiente. Mientras tanto puedes ejecutar la aplicación desde el código con los pasos que aparecen más abajo.
+1. Descarga el [instalador preliminar de MagicPDF Pro 1.12.4 para Windows x64](https://github.com/matfigueroac/MagicPDF/releases/download/v1.12.4-preview.1/MagicPDF-Pro-Setup-1.12.4.exe).
+2. Esta edición se distribuye sin firma de producción. Para comprobar la descarga, ejecuta `Get-FileHash .\MagicPDF-Pro-Setup-1.12.4.exe` en PowerShell y compara el resultado con el [SHA-256 publicado](https://github.com/matfigueroac/MagicPDF/releases/download/v1.12.4-preview.1/SHA256SUMS.txt).
+3. Ejecuta el instalador y abre **MagicPDF Pro** desde el menú Inicio. Las actualizaciones de la edición preliminar se instalan manualmente desde [Versiones](https://github.com/matfigueroac/MagicPDF/releases).
+
+La edición para Microsoft Store está en certificación. Una vez publicada, la tienda gestionará su instalación y sus actualizaciones.
 
 ## Prueba MagicPDF con un documento de ejemplo
 
