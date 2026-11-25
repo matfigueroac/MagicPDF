@@ -17,6 +17,16 @@ try {
   await app.evaluate(({dialog}) => {
     globalThis.closeResponse = 1; globalThis.closePrompts = [];
     dialog.showMessageBox = async (_window, options) => {globalThis.closePrompts.push(options);return {response:globalThis.closeResponse};};
+    const originalFetch = globalThis.fetch;
+    globalThis.checkedGitHub = false;
+    globalThis.fetch = (input, options) => {
+      if (input !== 'https://api.github.com/repos/matfigueroac/MagicPDF/releases/latest') return originalFetch(input, options);
+      globalThis.checkedGitHub = true;
+      return Promise.resolve(Response.json({
+        tag_name: 'v65535.0.0',
+        assets: [{ name: 'MagicPDF-Pro-Setup-65535.0.0.exe', state: 'uploaded', size: 3, digest: 'sha256:' + 'a'.repeat(64) }],
+      }));
+    };
   });
   const win=await app.firstWindow();
   await win.locator('.reader .textLayer').first().getByText('Desktop verification').waitFor({timeout:30000});
@@ -24,6 +34,10 @@ try {
   await win.getByRole('button',{name:'Buscar actualizaciones…',exact:true}).click();
   await expect.poll(() => app.evaluate(() => globalThis.closePrompts[0]?.title))
     .toBe('Actualizaciones de MagicPDF');
+  if (process.env.MAGICPDF_TEST_GITHUB_UPDATE === '1') {
+    assert.equal(await app.evaluate(() => globalThis.checkedGitHub), true);
+    assert.match(await app.evaluate(() => globalThis.closePrompts[0]?.message), /MagicPDF 65535\.0\.0 está disponible/);
+  }
   await expect(win.getByRole('tab')).toHaveCount(1);
   const expectedVersion=JSON.parse(await fs.readFile('package.json','utf8')).version;
   assert.equal(await app.evaluate(({app})=>app.getVersion()),expectedVersion);

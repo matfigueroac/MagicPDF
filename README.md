@@ -8,9 +8,9 @@ Lee, anota y organiza PDF en Windows. Puedes convertir un escaneo en texto selec
 
 ## Instalar en Windows
 
-1. Descarga el [instalador preliminar de MagicPDF Pro 1.12.4 para Windows x64](https://github.com/matfigueroac/MagicPDF/releases/download/v1.12.4-preview.1/MagicPDF-Pro-Setup-1.12.4.exe).
-2. Esta edición se distribuye sin firma de producción. Para comprobar la descarga, ejecuta `Get-FileHash .\MagicPDF-Pro-Setup-1.12.4.exe` en PowerShell y compara el resultado con el [SHA-256 publicado](https://github.com/matfigueroac/MagicPDF/releases/download/v1.12.4-preview.1/SHA256SUMS.txt).
-3. Ejecuta el instalador y abre **MagicPDF Pro** desde el menú Inicio. Las actualizaciones de la edición preliminar se instalan manualmente desde [Versiones](https://github.com/matfigueroac/MagicPDF/releases).
+1. Abre [Versiones de MagicPDF](https://github.com/matfigueroac/MagicPDF/releases) y descarga el archivo **MagicPDF-Pro-Setup-…exe** para Windows x64.
+2. El instalador de GitHub se distribuye sin firma Authenticode y Windows puede mostrar un aviso de SmartScreen. Puedes comprobar el archivo con PowerShell mediante `Get-FileHash .\MagicPDF-Pro-Setup-1.12.5.exe -Algorithm SHA256` y comparar el resultado con el archivo **SHA256SUMS.txt** de esa versión. [Información de Microsoft sobre SmartScreen](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)
+3. Ejecuta el instalador y abre **MagicPDF Pro** desde Inicio. Desde la versión 1.12.5, usa **Inicio → Buscar actualizaciones…** para descargar una versión posterior. MagicPDF verifica el SHA-256 publicado en GitHub. Guarda tus PDF y cierra la aplicación antes de abrir el nuevo instalador.
 
 La edición para Microsoft Store está en certificación. Cuando esté publicada, podrás instalarla desde la ficha de MagicPDF Pro y recibir actualizaciones a través de la tienda. [Microsoft Store](https://apps.microsoft.com/detail/9N3RHFGLFV4V)
 
@@ -43,4 +43,4 @@ Para generar tu propio instalador de prueba, ejecuta `npm run dist:release`. El 
 
 ## Licencia
 
-El código de MagicPDF se distribuye bajo la licencia MIT. Las bibliotecas, los modelos de OCR y el motor PDFCraft conservan sus propias licencias. Consulta los avisos distribuidos con el instalador. [Licencia MIT](LICENSE) · [Licencias de terceros](https://github.com/matfigueroac/MagicPDF/releases/download/v1.12.4-preview.1/Licencias-de-terceros.txt) · [Avisos de PDFCraft](bin/licenses)
+El código de MagicPDF se distribuye bajo la licencia MIT. Las bibliotecas, los modelos de OCR y el motor PDFCraft conservan sus propias licencias. Encontrarás **Licencias-de-terceros.txt** en cada descarga de Windows y dentro de la aplicación instalada. [Licencia MIT](LICENSE) · [Descargas y avisos](https://github.com/matfigueroac/MagicPDF/releases) · [Avisos de PDFCraft](bin/licenses)

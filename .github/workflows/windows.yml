@@ -10,6 +10,10 @@ on:
         description: Firmar el instalador y preparar los archivos de actualización
         type: boolean
         default: false
+      upgrade_from:
+        description: Versión de GitHub para probar la actualización
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -54,9 +58,65 @@ jobs:
           $original = Get-FileHash dist-licenses/Licencias-de-terceros.txt
           $empaquetado = Get-FileHash release/win-unpacked/resources/Licencias-de-terceros.txt
           if ($original.Hash -ne $empaquetado.Hash) { throw "Los avisos del paquete no coinciden con los generados." }
+      - name: Probar instalación en Windows limpio
+        if: ${{ !inputs.signed }}
+        shell: pwsh
+        env:
+          BASE_TAG: ${{ inputs.upgrade_from }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs\MagicPDF Pro\MagicPDF Pro.exe'
+          if ((Test-Path -LiteralPath $installed) -or (Get-AppxPackage -Name '*MagicPDF*')) {
+            throw 'La prueba requiere un Windows sin MagicPDF instalado.'
+          }
+          function Install-MagicPdf($installer, $expectedVersion) {
+            $process = Start-Process -FilePath $installer -ArgumentList '/S', '/currentuser' -Wait -PassThru
+            $actualVersion = (Get-Item -LiteralPath $installed).VersionInfo.ProductVersion
+            if ($process.ExitCode -ne 0 -or $actualVersion -notin @($expectedVersion, "$expectedVersion.0")) {
+              throw "Instalación incorrecta. Código $($process.ExitCode). Versión $actualVersion."
+            }
+            Write-Host "MagicPDF $actualVersion instalado."
+          }
+          if ($env:BASE_TAG) {
+            if ($env:BASE_TAG -cnotmatch '^v([0-9]+\.[0-9]+\.[0-9]+)(?:-[A-Za-z0-9.-]+)?$') {
+              throw 'La versión inicial debe ser una etiqueta de GitHub.'
+            }
+            $baseVersion = $Matches[1]
+            if ([version]$baseVersion -ge [version]$version) { throw 'La versión inicial debe ser anterior.' }
+            $baseName = "MagicPDF-Pro-Setup-$baseVersion.exe"
+            $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:BASE_TAG" | ConvertFrom-Json
+            $asset = $release.assets | Where-Object name -CEQ $baseName
+            if ($LASTEXITCODE -ne 0 -or @($asset).Count -ne 1 -or $asset.digest -cnotmatch '^sha256:[a-f0-9]{64}$') {
+              throw 'La versión inicial carece de un instalador verificable.'
+            }
+            $directory = Join-Path $env:RUNNER_TEMP 'magicpdf-base'
+            gh release download $env:BASE_TAG --repo $env:GITHUB_REPOSITORY --pattern $baseName --dir $directory
+            if ($LASTEXITCODE -ne 0) { throw 'Falló la descarga de la versión inicial.' }
+            $baseInstaller = Join-Path $directory $baseName
+            if ((Get-FileHash -LiteralPath $baseInstaller).Hash -ne $asset.digest.Substring(7)) {
+              throw 'El SHA-256 de la versión inicial no coincide.'
+            }
+            Install-MagicPdf $baseInstaller $baseVersion
+            $profile = New-Item -ItemType Directory -Force -Path (Join-Path $env:APPDATA 'MagicPDF Pro')
+            $probe = Join-Path $profile.FullName 'upgrade-probe.txt'
+            Set-Content -LiteralPath $probe -Value $env:GITHUB_RUN_ID
+          }
+          $installer = (Resolve-Path -LiteralPath "release/MagicPDF-Pro-Setup-$version.exe").Path
+          if ((Get-AuthenticodeSignature -LiteralPath $installer).Status -ne 'NotSigned') {
+            throw 'Se esperaba un instalador de GitHub sin firma Authenticode.'
+          }
+          Install-MagicPdf $installer $version
+          if ($env:BASE_TAG -and (Get-Content -LiteralPath $probe) -ne $env:GITHUB_RUN_ID) {
+            throw 'La actualización cambió los datos de prueba.'
+          }
+          $env:MAGICPDF_EXECUTABLE = $installed
+          $env:MAGICPDF_TEST_GITHUB_UPDATE = '1'
+          node tests/desktop-smoke.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Falló la prueba de la aplicación instalada.' }
       - uses: actions/upload-artifact@v6
         with:
-          name: MagicPDF-Windows-x64-${{ inputs.signed && 'signed' || 'preview' }}
+          name: MagicPDF-Windows-x64-${{ inputs.signed && 'signed' || 'unsigned' }}
           path: |
             release/MagicPDF-Pro-Setup-*.exe
             release/MagicPDF-Pro-Setup-*.exe.blockmap

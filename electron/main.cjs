@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -15,6 +15,9 @@ const appVersion = app.getVersion();
 const windowsUpdates = createWindowsUpdates({
   dialog, publisher: windowsUpdatePublisher, version: appVersion, storeBuild: windowsUpdateChannel === 'store',
   enabled: process.platform === 'win32' && app.isPackaged && !process.env.PORTABLE_EXECUTABLE_FILE,
+  downloadsDirectory: () => app.getPath('downloads'),
+  showInstaller: file => shell.showItemInFolder(file),
+  openReleasePage: url => shell.openExternal(url),
 });
 function uploadsDirectory() {
   return app.isPackaged ? path.join(process.env.APPDATA,'MagicPDF','uploads') : path.resolve(__dirname,'..','storage','uploads');

@@ -4,11 +4,16 @@
 
 1. Actualiza la versión en `package.json` y `package-lock.json` con `npm version patch --no-git-tag-version`. Ajusta el incremento según los cambios.
 2. Sube el cambio a `main` y comprueba el flujo **Windows**. Este compila la aplicación y ejecuta las pruebas de integración, recuperación y actualizaciones.
-3. Desde **Actions → Windows → Run workflow**, ejecuta el flujo en `main` con la opción de firma y descarga el artefacto **MagicPDF-Windows-x64-signed**.
+3. Desde **Actions → Windows → Run workflow**, ejecuta el flujo en `main`. Para la edición de GitHub, deja desmarcada la firma y descarga el artefacto **MagicPDF-Windows-x64-unsigned**. En **Versión de GitHub para probar la actualización**, puedes indicar la etiqueta anterior para ensayar la instalación encima de esa versión en el runner limpio.
+4. Crea una versión de GitHub con etiqueta estable `v<mayor>.<menor>.<parche>` y adjunta `MagicPDF-Pro-Setup-<versión>.exe`, `SHA256SUMS.txt` y `Licencias-de-terceros.txt`. Indica en las notas que el instalador carece de firma Authenticode. La opción **Buscar actualizaciones…** usa la última versión estable de GitHub y valida el tamaño y el SHA-256 del instalador con los datos de GitHub Releases. Comprueba las descargas y el hash después de publicar.
+
+Para preparar el EXE sin firma de forma local, usa `npm ci` y `npm run dist:release` en Windows x64. Conserva el nombre original del instalador que genera el build.
+
+## Firma opcional para el EXE de GitHub
+
+Si dispones de una identidad Authenticode de producción, ejecuta el flujo con la opción de firma y descarga el artefacto **MagicPDF-Windows-x64-signed**.
 
 El trabajo de firma lee `WINDOWS_CSC_LINK` y `WINDOWS_CSC_KEY_PASSWORD` del entorno de GitHub **windows-release**. Esa configuración admite un certificado Authenticode en formato PFX mediante el mecanismo `CSC_LINK` de electron-builder. Configura también la variable `WINDOWS_PUBLISHER` con el sujeto exacto del certificado que devuelve `(Get-AuthenticodeSignature -LiteralPath 'ruta-del-ejecutable-firmado').SignerCertificate.Subject`. Conserva la misma identidad de editor al renovar el certificado. [Firma en electron-builder](https://www.electron.build/docs/features/code-signing/)
-
-Sin la opción de firma, el flujo genera un instalador preliminar para GitHub. Para generarlo localmente usa `npm ci` y `npm run dist:release` en Windows x64. Adjunta el EXE, `SHA256SUMS.txt` y `dist-licenses/Licencias-de-terceros.txt` a la versión preliminar. Indica que el EXE se distribuye sin firma y que las actualizaciones de esa edición se instalan manualmente.
 
 ## Firmar localmente para distribución
 
