@@ -56,4 +56,5 @@ jobs:
             release/MagicPDF-Pro-Setup-*.exe.blockmap
             release/latest.yml
             release/SHA256SUMS.txt
+            dist-licenses/Licencias-de-terceros.txt
           if-no-files-found: error

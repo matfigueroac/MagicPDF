@@ -18,7 +18,8 @@
     "server": "tsx watch server/index.ts",
     "app": "electron .",
     "build:server": "tsc -p tsconfig.server.json && esbuild server/index.ts --bundle --platform=node --format=cjs --outfile=dist-server/index.cjs --external:electron && node scripts/prepare-ocr.cjs",
-    "build": "tsc -b && vite build && npm run build:server",
+    "build": "tsc -b && vite build && npm run build:server && npm run licenses:windows",
+    "licenses:windows": "node scripts/prepare-licenses.cjs",
     "dist": "npm run build && electron-builder --win nsis --publish never",
     "dist:all": "npm run build && electron-builder --win nsis portable --publish never",
     "dist:release": "npm run build && node scripts/build-windows-release.cjs"
@@ -39,6 +40,10 @@
       {
         "from": "LICENSE",
         "to": "LICENSE-MagicPDF.txt"
+      },
+      {
+        "from": "dist-licenses/Licencias-de-terceros.txt",
+        "to": "Licencias-de-terceros.txt"
       },
       {
         "from": "dist-ocr",

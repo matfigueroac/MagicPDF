@@ -1,0 +1,6 @@
+MagicPDF incluye los modelos eng.traineddata.gz y spa.traineddata.gz del
+directorio 4.0.0 de Naptha Tessdata, a través de los paquetes npm
+@tesseract.js-data/eng y @tesseract.js-data/spa. Los modelos se distribuyen
+bajo Apache-2.0. Tesseract-tessdata-LICENSE.txt conserva la licencia original.
+
+https://github.com/naptha/tessdata/tree/806cd9adc8c6e8abc11c782db1818c990576bebc/4.0.0

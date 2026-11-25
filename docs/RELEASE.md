@@ -8,13 +8,11 @@
 
 El trabajo de firma lee `WINDOWS_CSC_LINK` y `WINDOWS_CSC_KEY_PASSWORD` del entorno de GitHub **windows-release**. Esa configuración admite un certificado Authenticode en formato PFX mediante el mecanismo `CSC_LINK` de electron-builder. Configura también la variable `WINDOWS_PUBLISHER` con el sujeto exacto del certificado que devuelve `(Get-AuthenticodeSignature -LiteralPath 'ruta-del-ejecutable-firmado').SignerCertificate.Subject`. Conserva la misma identidad de editor al renovar el certificado. [Firma en electron-builder](https://www.electron.build/docs/features/code-signing/)
 
-Sin la opción de firma, el flujo genera un instalador de prueba. Para generarlo localmente usa `npm ci` y `npm run dist:release` en Windows x64.
+Sin la opción de firma, el flujo genera un instalador preliminar para GitHub. Para generarlo localmente usa `npm ci` y `npm run dist:release` en Windows x64. Adjunta el EXE, `SHA256SUMS.txt` y `dist-licenses/Licencias-de-terceros.txt` a la versión preliminar. Indica que el EXE se distribuye sin firma y que las actualizaciones de esa edición se instalan manualmente.
 
 ## Firmar localmente para distribución
 
 En Windows x64, ejecuta `npm ci` y `npm run build`. Configura `MAGICPDF_WINDOWS_PUBLISHER` con el sujeto exacto del certificado. Si el certificado está en el almacén de Windows y su clave está accesible para SignTool, configura `MAGICPDF_WINDOWS_CERT_THUMBPRINT` con su huella de 40 caracteres. Para un PFX usa `CSC_LINK` y `CSC_KEY_PASSWORD` en la sesión de terminal. Ejecuta `node scripts/build-windows-release.cjs --signed`. Con una huella configurada, el script comprueba antes de empaquetar que Windows encuentra el certificado con ese sujeto, vigencia y clave privada asociada. Los artefactos de distribución quedan en `release/` y Windows debe validar la firma con sello de tiempo del instalador y de la aplicación. [Opciones de SignTool en electron-builder 26](https://www.electron.build/v26/docs/api/app-builder-lib.interface.windowssigntoolconfiguration/)
-
-Para firmar el EXE de GitHub como persona natural, la opción evaluada es SSL.com IV con eSigner y su Cloud Key Adapter para Windows. El costo incluye certificado y servicio de firma. Antes de contratar, confirma con el proveedor que puede validar tu documento de identidad y domicilio. El adaptador expone el certificado en Windows para usarlo por huella con SignTool. Conserva el mismo sujeto al renovar. [Precios de SSL.com](https://www.ssl.com/products/software-integrity/signing-service/) · [Cloud Key Adapter](https://www.ssl.com/downloads/)
 
 ## Validar dos versiones en local
 
@@ -46,12 +44,13 @@ Para ensayar localmente, genera dos versiones con `node scripts/build-windows-st
 ## Probar y publicar
 
 1. En Windows limpio, instala el ejecutable. Abre un PDF, guarda una edición y prueba el OCR sin conexión. Confirma el editor del instalador y comprueba el hash contra `SHA256SUMS.txt`.
-2. Crea un borrador de release con la etiqueta `v<versión>` apuntando al commit probado. Añade un resumen de cambios y adjunta estos cuatro archivos del mismo build.
+2. Crea un borrador de release con la etiqueta `v<versión>` apuntando al commit probado. Añade un resumen de cambios y adjunta estos archivos del mismo build.
 
    - `MagicPDF-Pro-Setup-<versión>.exe`
    - `MagicPDF-Pro-Setup-<versión>.exe.blockmap`
    - `latest.yml`
    - `SHA256SUMS.txt`
+   - `Licencias-de-terceros.txt` de `dist-licenses/`
 
 3. Publica la primera versión firmada para habilitar la descarga. Antes de publicar una segunda versión para todos, prueba la transición desde la versión anterior con dos compilaciones firmadas en un repositorio público de pruebas. Un borrador de GitHub no alimenta el canal de usuarios. [Releases de GitHub](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository) · [Actualizaciones de electron-builder](https://www.electron.build/docs/features/auto-update/)
 4. Tras publicar, descarga el instalador desde GitHub con una sesión sin autenticar. Desde la versión anterior, prueba **Buscar actualizaciones…**, descarga la nueva y verifica que cancelar el cierre mantiene abierto el documento. Al confirmar el cierre, verifica que se instala la nueva versión y que los PDF guardados se siguen abriendo.
