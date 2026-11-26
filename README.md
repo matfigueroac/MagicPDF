@@ -12,7 +12,7 @@ Lee, anota y organiza PDF en Windows. Puedes convertir un escaneo en texto selec
 2. El instalador de GitHub se distribuye sin firma Authenticode y Windows puede mostrar un aviso de SmartScreen. Puedes comprobar el archivo con PowerShell mediante `Get-FileHash .\MagicPDF-Pro-Setup-1.12.5.exe -Algorithm SHA256` y comparar el resultado con el archivo **SHA256SUMS.txt** de esa versión. [Información de Microsoft sobre SmartScreen](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)
 3. Ejecuta el instalador y abre **MagicPDF Pro** desde Inicio. Desde la versión 1.12.5, usa **Inicio → Buscar actualizaciones…** para descargar una versión posterior. MagicPDF verifica el SHA-256 publicado en GitHub. Guarda tus PDF y cierra la aplicación antes de abrir el nuevo instalador.
 
-La edición para Microsoft Store está en certificación. Cuando esté publicada, podrás instalarla desde la ficha de MagicPDF Pro y recibir actualizaciones a través de la tienda. [Microsoft Store](https://apps.microsoft.com/detail/9N3RHFGLFV4V)
+También puedes instalar MagicPDF Pro gratis desde Microsoft Store en Windows x64. La tienda gestiona las actualizaciones de esta edición. [Microsoft Store](https://apps.microsoft.com/detail/9N3RHFGLFV4V)
 
 ## Prueba MagicPDF con un documento de ejemplo
 
